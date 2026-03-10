@@ -14,7 +14,7 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
     React.useEffect(() => {
         const fetchLedger = async () => {
             try {
-                const res = await fetch('http://localhost:5000/api/ledger');
+                const res = await fetch('/api/ledger');
                 if (res.ok) {
                     const data = await res.json();
                     setLedgerData(data.map((tx: any) => ({

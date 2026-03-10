@@ -18,7 +18,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
     useEffect(() => {
         const fetchOrders = async () => {
             try {
-                const res = await fetch('http://localhost:5000/api/market/orders');
+                const res = await fetch('/api/market/orders');
                 if (res.ok) {
                     const data = await res.json();
 
@@ -98,7 +98,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
 
     const handlePostListing = async (values: any) => {
         try {
-            const res = await fetch('http://localhost:5000/api/market/orders', {
+            const res = await fetch('/api/market/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -29,15 +29,12 @@ if (!MONGODB_URI) {
 }
 
 mongoose.connect(MONGODB_URI)
-    .then(() => {
-        console.log('Successfully connected to MongoDB!');
-        app.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
-        });
-    })
-    .catch((error) => {
-        console.error('Error connecting to MongoDB:', error.message);
-    });
+    .then(() => console.log('Successfully connected to MongoDB!'))
+    .catch((error) => console.error('Error connecting to MongoDB:', error.message));
+
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
 
 // API Routes
 app.use('/api/users', usersRoutes);
@@ -49,3 +46,5 @@ app.use('/api/ledger', ledgerRoutes);
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'API is running and connected to database' });
 });
+
+export default app;

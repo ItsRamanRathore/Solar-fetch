@@ -39,7 +39,7 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
     useEffect(() => {
         const fetchAssets = async () => {
             try {
-                const res = await fetch('http://localhost:5000/api/assets');
+                const res = await fetch('/api/assets');
                 if (res.ok) {
                     const data = await res.json();
                     const mappedAssets = data.map((item: any) => ({

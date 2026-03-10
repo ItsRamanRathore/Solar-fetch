@@ -23,8 +23,8 @@ const App: React.FC = () => {
     const fetchData = async () => {
       try {
         const [userRes, gridRes] = await Promise.all([
-          fetch('http://localhost:5000/api/users/me'),
-          fetch('http://localhost:5000/api/grid')
+          fetch('/api/users/me'),
+          fetch('/api/grid')
         ]);
         if (userRes.ok) {
           const userData = await userRes.json();
@@ -45,7 +45,7 @@ const App: React.FC = () => {
   const handleSimModeChange = async (val: string) => {
     setSimMode(val);
     try {
-      await fetch('http://localhost:5000/api/grid', {
+      await fetch('/api/grid', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ simMode: val })
@@ -58,7 +58,7 @@ const App: React.FC = () => {
   const handleRoleChange = async (val: 'resident' | 'admin') => {
     setUserRoleState(val);
     try {
-      await fetch('http://localhost:5000/api/users/me', {
+      await fetch('/api/users/me', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: val })
