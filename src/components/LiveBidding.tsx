@@ -1,33 +1,59 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Badge } from 'antd';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSocket } from '../contexts/SocketContext';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
+interface LiveBid {
+    id: string;
+    type: 'Bid' | 'Ask' | 'Match';
+    price: number;
+    volume: number;
+    time: string;
+}
+
 const LiveBidding: React.FC = () => {
-    const [bids, setBids] = useState<{ id: number, type: string, price: number, volume: number, time: string }[]>([
-        { id: 1, type: 'Bid', price: 0.12, volume: 5.4, time: '22:42:10' },
-        { id: 2, type: 'Ask', price: 0.15, volume: 2.1, time: '22:42:08' },
-        { id: 3, type: 'Bid', price: 0.11, volume: 8.0, time: '22:42:05' },
-        { id: 4, type: 'Ask', price: 0.14, volume: 3.5, time: '22:42:02' },
-        { id: 5, type: 'Bid', price: 0.13, volume: 1.2, time: '22:41:58' },
-    ]);
+    const [bids, setBids] = useState<LiveBid[]>([]);
+    const { socket } = useSocket();
 
     useEffect(() => {
-        const interval = setInterval(() => {
-            const isAsk = Math.random() > 0.5;
-            const priceValue = parseFloat((0.10 + Math.random() * 0.10).toFixed(2));
-            const volumeValue = parseFloat((Math.random() * 10).toFixed(1));
-            const newBid = {
-                id: Date.now(),
-                type: isAsk ? 'Ask' : 'Bid',
-                price: priceValue,
-                volume: volumeValue,
-                time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
-            };
-            setBids(prev => [newBid, ...prev.slice(0, 9)]);
-        }, 3000);
-        return () => clearInterval(interval);
-    }, []);
+        if (!socket) return;
+
+        const handleNewOrder = (data: any) => {
+            const nextType = data.type as 'Bid' | 'Ask' | 'Match';
+            setBids(prev => [
+                {
+                    id: Math.random().toString().substring(2, 9),
+                    type: nextType,
+                    price: data.price,
+                    volume: data.volume,
+                    time: data.time
+                },
+                ...prev
+            ].slice(0, 10));
+        };
+
+        const handleMatch = (data: any) => {
+            setBids(prev => [
+                {
+                    id: data.txid,
+                    type: 'Match' as const,
+                    price: data.price,
+                    volume: data.volume,
+                    time: data.time
+                },
+                ...prev
+            ].slice(0, 10));
+        };
+
+        socket.on('market:newOrder', handleNewOrder);
+        socket.on('market:orderComplete', handleMatch);
+
+        return () => {
+            socket.off('market:newOrder', handleNewOrder);
+            socket.off('market:orderComplete', handleMatch);
+        };
+    }, [socket]);
 
     return (
         <Card className="glass-card h-full flex flex-col" bodyStyle={{ padding: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -54,14 +80,16 @@ const LiveBidding: React.FC = () => {
                                 className={`flex justify-between items-center p-2.5 rounded-xl border border-white/5 bg-white/5 backdrop-blur-sm`}
                             >
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${bid.type === 'Ask' ? 'bg-red-500/10' : 'bg-[#00ff88]/10'}`}>
-                                        {bid.type === 'Ask' ? <TrendingDown size={18} className="text-red-400" /> : <TrendingUp size={18} className="neon-text-green" />}
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${bid.type === 'Ask' ? 'bg-red-500/10' : bid.type === 'Bid' ? 'bg-[#00ff88]/10' : 'bg-cyan-500/10'}`}>
+                                        {bid.type === 'Ask' ? <TrendingDown size={18} className="text-red-400" /> : bid.type === 'Bid' ? <TrendingUp size={18} className="neon-text-green" /> : <span className="text-cyan-400 text-xs font-bold">M</span>}
                                     </div>
-                                    <div className="py-1">
-                                        <div className={`text-sm font-bold ${bid.type === 'Ask' ? 'text-red-400' : 'neon-text-green'}`}>
-                                            ${bid.price.toFixed(2)}
+                                    <div className="py-1 flex flex-col items-start gap-1">
+                                        <div className={`text-sm font-bold leading-none ${bid.type === 'Ask' ? 'text-red-400' : bid.type === 'Bid' ? 'neon-text-green' : 'text-cyan-400'}`}>
+                                            ₹{bid.price.toFixed(2)}
                                         </div>
-                                        <div className="text-[10px] text-muted uppercase font-bold tracking-tighter">{bid.type}</div>
+                                        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded leading-none ${bid.type === 'Bid' ? 'bg-[#00e5ff]/10 text-[#00e5ff]' : bid.type === 'Ask' ? 'bg-[#ff3366]/10 text-[#ff3366]' : 'bg-[#00ff88]/10 text-[#00ff88]'}`}>
+                                            {bid.type}
+                                        </span>
                                     </div>
                                 </div>
                                 <div className="text-right">

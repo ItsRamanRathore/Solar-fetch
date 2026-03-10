@@ -12,9 +12,30 @@ import {
 interface SidebarProps {
     onSelect: (key: string) => void;
     activeKey: string;
+    role: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onSelect, activeKey }) => {
+const getMenuItems = (role: string) => {
+    if (role === 'admin') {
+        return [
+            { key: 'dashboard', icon: <Cpu size={18} />, label: 'Admin Governance' },
+            { key: 'live-grid', icon: <Activity size={18} />, label: 'Grid Overview' },
+            { key: 'ledger', icon: <ShieldCheck size={18} />, label: 'Audit Trail' },
+        ];
+    }
+    if (role === 'prosumer') {
+        return [
+            { key: 'dashboard', icon: <Zap size={18} />, label: 'Prosumer Studio' },
+            { key: 'live-grid', icon: <Activity size={18} />, label: 'Grid Overview' },
+        ];
+    }
+    return [
+        { key: 'dashboard', icon: <Activity size={18} />, label: 'Consumer Market' },
+        { key: 'live-grid', icon: <Activity size={18} />, label: 'Grid Overview' },
+    ];
+};
+
+const Sidebar: React.FC<SidebarProps> = ({ onSelect, activeKey, role }) => {
     return (
         <div className="h-full flex flex-col">
             <div className="p-6 flex items-center gap-3">
@@ -29,12 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelect, activeKey }) => {
                 selectedKeys={[activeKey]}
                 onClick={({ key }) => onSelect(key)}
                 className="flex-1 border-none py-4"
-                items={[
-                    { key: 'live-grid', icon: <Activity size={18} />, label: 'Grid Overview' },
-                    { key: 'marketplace', icon: <Zap size={18} />, label: 'Live Marketplace' },
-                    { key: 'my-assets', icon: <Cpu size={18} />, label: 'My Energy Assets' },
-                    { key: 'ledger', icon: <ShieldCheck size={18} />, label: 'Audit Trail' },
-                ]}
+                items={getMenuItems(role)}
             />
 
             <div className="p-4 mt-auto border-t border-[rgba(255,255,255,0.1)]">

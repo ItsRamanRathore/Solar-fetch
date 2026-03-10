@@ -1,25 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Statistic, Card } from 'antd';
-import { Zap, Activity, Users, TrendingUp } from 'lucide-react';
+import { Zap, Activity, Users, TrendingUp, Wifi } from 'lucide-react';
+import { useSocket } from '../contexts/SocketContext';
 
 const HeaderStats: React.FC = () => {
     const [gen, setGen] = useState(142.8);
     const [trades, setTrades] = useState(12);
     const [health, setHealth] = useState(98);
 
+    const { socket, connected } = useSocket();
+
     useEffect(() => {
-        const interval = setInterval(() => {
-            setGen(prev => +(prev + (Math.random() * 0.4 - 0.2)).toFixed(1));
-            setHealth(prev => {
-                const change = Math.random() > 0.8 ? (Math.random() * 2 - 1) : 0;
-                return Math.min(100, Math.max(85, +(prev + change).toFixed(0)));
-            });
-            if (Math.random() > 0.9) {
-                setTrades(prev => Math.max(1, prev + (Math.random() > 0.5 ? 1 : -1)));
-            }
-        }, 3000);
-        return () => clearInterval(interval);
-    }, []);
+        if (!socket) return;
+
+        const handlePulse = (data: any) => {
+            setGen(data.generation);
+            setHealth(data.health);
+            setTrades(data.activeTrades);
+        };
+
+        socket.on('grid:pulse', handlePulse);
+
+        return () => {
+            socket.off('grid:pulse', handlePulse);
+        };
+    }, [socket]);
 
     return (
         <Row gutter={[16, 16]} className="mb-6">
@@ -48,8 +53,17 @@ const HeaderStats: React.FC = () => {
                         valueStyle={{ color: '#00e5ff', fontWeight: 900, fontSize: '28px', fontFamily: 'Outfit' }}
                     />
                     <div className="flex items-center gap-1 mt-1">
-                        <div className="w-1 h-1 rounded-full bg-[#00e5ff] animate-pulse" />
-                        <span className="text-[9px] text-[#00e5ff] font-bold">Real-time matching active</span>
+                        {connected ? (
+                            <>
+                                <div className="w-1 h-1 rounded-full bg-[#00e5ff] animate-pulse" />
+                                <span className="text-[9px] text-[#00e5ff] font-bold">Real-time matching active</span>
+                            </>
+                        ) : (
+                            <>
+                                <Wifi size={10} className="text-muted" />
+                                <span className="text-[9px] text-muted font-bold">Connecting socket...</span>
+                            </>
+                        )}
                     </div>
                 </Card>
             </Col>

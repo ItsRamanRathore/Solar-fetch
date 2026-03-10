@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, Row, Col, Progress, Table, Tag, Switch, Space, Button } from 'antd';
 import { ShieldCheck, Activity, Cpu, Terminal as TerminalIcon, RefreshCcw, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 
 interface MyAssetsProps {
     simMode?: string;
@@ -34,31 +35,23 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
         }
     }, [logs]);
 
-    const [assets, setAssets] = useState<any[]>([]);
-
-    useEffect(() => {
-        const fetchAssets = async () => {
-            try {
-                const res = await fetch('/api/assets');
-                if (res.ok) {
-                    const data = await res.json();
-                    const mappedAssets = data.map((item: any) => ({
-                        key: item._id,
-                        name: item.name,
-                        type: item.type,
-                        status: item.status,
-                        output: `${item.output} ${item.type === 'Storage' ? 'kWh' : 'kW'}`,
-                        efficiency: item.efficiency,
-                        hardwareId: item.hardwareId
-                    }));
-                    setAssets(mappedAssets);
-                }
-            } catch (err) {
-                console.error("Failed to fetch assets", err);
-            }
-        };
-        fetchAssets();
-    }, []);
+    const { data: assets = [], isLoading } = useQuery({
+        queryKey: ['assets'],
+        queryFn: async () => {
+            const res = await fetch('/api/assets');
+            if (!res.ok) throw new Error('Failed to fetch assets');
+            const data = await res.json();
+            return data.map((item: any) => ({
+                key: item._id,
+                name: item.name,
+                type: item.type,
+                status: item.status,
+                output: `${item.output} ${item.type === 'Storage' ? 'kWh' : 'kW'}`,
+                efficiency: item.efficiency,
+                hardwareId: item.hardwareId
+            }));
+        }
+    });
 
     const columns = [
         { title: 'Asset Name', dataIndex: 'name', key: 'name', render: (text: string) => <span className="font-bold text-white">{text}</span> },
@@ -302,6 +295,7 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
                             columns={columns}
                             dataSource={assets}
                             pagination={false}
+                            loading={isLoading}
                             className="custom-table"
                             size="small"
                         />

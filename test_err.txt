@@ -1,0 +1,52 @@
+﻿
+> solar-fetch@0.0.0 test
+> cross-env NODE_OPTIONS=--experimental-vm-modules jest
+
+node.exe : 
+At line:1 char:1
++ & "C:\Program 
+Files\nodejs/node.exe" 
+"C:\Program 
+Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo           
+   : NotSpecified: (:String  
+  ) [], RemoteException
+    + FullyQualifiedErrorId  
+   : NativeCommandError
+ 
+ReferenceError: You are 
+trying to `import` a file 
+after the Jest environment 
+has been torn down. From 
+server/tests/market.test.js.
+FAIL 
+server/tests/market.test.js
+  ΓùÅ Test suite failed to 
+run
+
+    Cannot find module 
+'mongodb-memory-server' from 
+'server/tests/market.test.js'
+
+      at Resolver._throwModNo
+tFoundError (node_modules/jes
+t-resolve/build/index.js:863:
+11)
+
+Test Suites: 1 failed, 1 
+total
+Tests:       0 total
+Snapshots:   0 total
+Time:        1.279 s
+Ran all test suites.
+(node:30308) 
+ExperimentalWarning: VM 
+Modules is an experimental 
+feature and might change at 
+any time
+(Use `node --trace-warnings 
+...` to show where the 
+warning was created)

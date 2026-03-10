@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Button, Tag, Table, Modal, Form, InputNumber, Select, message, notification, Avatar, Space } from 'antd';
+import { Card, Row, Col, Button, Tag, Table, Modal, Form, InputNumber, Select, message, Avatar, Space } from 'antd';
 import { ShoppingBag, Zap, Plus, User, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSocket } from '../../contexts/SocketContext';
 
 interface MarketplaceProps {
     simMode?: string;
@@ -11,93 +13,52 @@ interface MarketplaceProps {
 const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [form] = Form.useForm();
-    const [availableVolume, setAvailableVolume] = useState(100.0);
-    const [sells, setSells] = useState<any[]>([]);
-    const [buys, setBuys] = useState<any[]>([]);
+    const queryClient = useQueryClient();
+    const { socket } = useSocket();
 
-    useEffect(() => {
-        const fetchOrders = async () => {
-            try {
-                const res = await fetch('/api/market/orders');
-                if (res.ok) {
-                    const data = await res.json();
+    const { data: ordersData, isLoading } = useQuery({
+        queryKey: ['orders'],
+        queryFn: async () => {
+            const res = await fetch('/api/market/orders');
+            if (!res.ok) throw new Error('Failed to fetch orders');
+            const data = await res.json();
 
-                    const formatOrder = (o: any) => ({
-                        key: o._id,
-                        user: o.maker.username,
-                        kwh: o.kwh,
-                        price: o.price,
-                        status: o.status,
-                        trustScore: o.maker.trustScore,
-                        isCertified: o.maker.isCertified
-                    });
-
-                    setSells(data.sells.map(formatOrder));
-                    setBuys(data.buys.map(formatOrder));
-                }
-            } catch (err) {
-                console.error("Failed to fetch orders", err);
-            }
-        };
-        fetchOrders();
-    }, []);
-
-    // Cleanup simulation sync
-    useEffect(() => {
-        if (simMode === 'sunset') {
-            setSells(prev => prev.map(s => ({
-                ...s,
-                price: +(s.price * 1.35).toFixed(2)
-            })));
-            notification.warning({
-                message: 'Sunset Dynamics Active',
-                description: 'Energy scarcity detected. Market prices surged 35%.',
-                placement: 'top'
+            const formatOrder = (o: any) => ({
+                key: o._id,
+                user: o.maker.username,
+                kwh: o.remainingKwh,
+                price: o.price,
+                status: o.status,
+                trustScore: o.maker.trustScore,
+                isCertified: o.maker.isCertified
             });
-        }
-    }, [simMode]);
 
-    // Matching Engine
+            return {
+                sells: data.sells.map(formatOrder),
+                buys: data.buys.map(formatOrder)
+            };
+        },
+        refetchInterval: 10000 // Fallback polling
+    });
+
     useEffect(() => {
-        const matchingInterval = setInterval(() => {
-            if (sells.length > 0 && buys.length > 0) {
-                // Recommender Logic: Priority to Certified Peers
-                const sortedSells = [...sells].sort((a, b) => (b.isCertified ? 1 : 0) - (a.isCertified ? 1 : 0) || a.price - b.price);
-                const sortedBuys = [...buys].sort((a, b) => b.price - a.price);
+        if (!socket) return;
 
-                const matchedAsk = sortedSells[0];
-                const matchedBid = sortedBuys[0];
+        const handleRemoteUpdate = () => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+        };
 
-                if (matchedBid && matchedAsk && matchedBid.price >= matchedAsk.price) {
-                    // Double-Spend Protection
-                    if (availableVolume < matchedAsk.kwh) {
-                        notification.error({
-                            message: 'Double-Spend Prevented',
-                            description: 'Asset volume already settled by concurrent node.',
-                        });
-                        return;
-                    }
+        socket.on('market:newOrder', handleRemoteUpdate);
+        socket.on('market:orderComplete', handleRemoteUpdate);
 
-                    notification.success({
-                        message: 'Automated Transaction Settled',
-                        description: `Paired ${matchedAsk.user} & ${matchedBid.user} @ $${matchedAsk.price}/kWh.`,
-                        icon: <Zap size={20} className="text-[#00ff88]" />,
-                        className: 'glass-card-notif',
-                        placement: 'bottomRight'
-                    });
+        return () => {
+            socket.off('market:newOrder', handleRemoteUpdate);
+            socket.off('market:orderComplete', handleRemoteUpdate);
+        };
+    }, [socket, queryClient]);
 
-                    setAvailableVolume(prev => prev - matchedAsk.kwh);
-                    setBuys(prev => prev.filter(b => b.key !== matchedBid.key));
-                    setSells(prev => prev.filter(s => s.key !== matchedAsk.key));
-                }
-            }
-        }, 12000);
-
-        return () => clearInterval(matchingInterval);
-    }, [sells, buys, availableVolume]);
-
-    const handlePostListing = async (values: any) => {
-        try {
+    const postListingMutation = useMutation({
+        mutationFn: async (values: any) => {
             const res = await fetch('/api/market/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -107,34 +68,31 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
                     price: values.price
                 })
             });
-
-            if (res.ok) {
-                const newOrderRaw = await res.json();
-                const newListing = {
-                    key: newOrderRaw._id,
-                    user: 'Major Tom (You)',
-                    kwh: newOrderRaw.kwh,
-                    price: newOrderRaw.price,
-                    status: newOrderRaw.status,
-                    trustScore: 100,
-                    isCertified: true
-                };
-
-                if (values.type === 'sell') {
-                    setSells(prev => [newListing, ...prev]);
-                } else {
-                    setBuys(prev => [newListing, ...prev]);
-                }
-
-                setIsModalOpen(false);
-                form.resetFields();
-                message.success('Listing published to peer-network');
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.[0]?.message || 'Failed to post listing');
             }
-        } catch (err) {
-            console.error('Failed to post listing:', err);
-            message.error('Failed to publish listing');
+            return res.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+            setIsModalOpen(false);
+            form.resetFields();
+            message.success('Listing published to peer-network');
+        },
+        onError: (err: Error) => {
+            message.error(err.message);
         }
+    });
+
+    const handlePostListing = (values: any) => {
+        postListingMutation.mutate(values);
     };
+
+    const sells = ordersData?.sells || [];
+    const buys = ordersData?.buys || [];
+    const availableVolume = sells.reduce((acc: number, sell: any) => acc + (sell.kwh || 0), 0) + 14.5; // Mock base liquidity
+
 
     const columns = (marketType: 'sell' | 'buy') => [
         {
@@ -261,6 +219,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
                             columns={columns('sell')}
                             dataSource={sells}
                             pagination={false}
+                            loading={isLoading}
                             className="glass-table"
                         />
                     </Card>
@@ -277,6 +236,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
                             columns={columns('buy')}
                             dataSource={buys}
                             pagination={false}
+                            loading={isLoading}
                             className="glass-table"
                         />
                     </Card>
@@ -310,12 +270,18 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
                             </Form.Item>
                         </Col>
                         <Col span={12}>
-                            <Form.Item name="price" label="Price ($/kWh)" rules={[{ required: true }]}>
+                            <Form.Item name="price" label="Price (₹/kWh)" rules={[{ required: true }]}>
                                 <InputNumber className="w-full custom-input-dark" precision={2} />
                             </Form.Item>
                         </Col>
                     </Row>
-                    <Button type="primary" htmlType="submit" block className="bg-[#00ff88] border-none text-black font-black uppercase h-10 mt-4">
+                    <Button
+                        type="primary"
+                        htmlType="submit"
+                        block
+                        loading={postListingMutation.isPending}
+                        className="bg-[#00ff88] border-none text-black font-black uppercase h-10 mt-4"
+                    >
                         Publish to Ledger
                     </Button>
                 </Form>

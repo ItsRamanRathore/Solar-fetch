@@ -4,8 +4,9 @@ const orderSchema = new mongoose.Schema({
     maker: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     type: { type: String, enum: ['buy', 'sell'], required: true },
     kwh: { type: Number, required: true },
+    remainingKwh: { type: Number, required: true },
     price: { type: Number, required: true },
-    status: { type: String, enum: ['PENDING', 'MATCHED', 'CANCELLED'], default: 'PENDING' }
+    status: { type: String, enum: ['PENDING', 'PARTIAL', 'MATCHED', 'CANCELLED'], default: 'PENDING' }
 }, { timestamps: true });
 
 export default mongoose.model('Order', orderSchema);

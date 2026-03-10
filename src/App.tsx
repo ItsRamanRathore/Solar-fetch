@@ -3,33 +3,38 @@ import { ConfigProvider, Layout, Select, Avatar } from 'antd';
 import { darkThemeConfig } from './theme/config';
 import Sidebar from './components/Sidebar';
 import LiveGrid from './components/views/LiveGrid';
-import MyAssets from './components/views/MyAssets';
-import Marketplace from './components/views/Marketplace';
 import LedgerView from './components/views/LedgerView';
-import { User, ChevronDown } from 'lucide-react';
+import ProsumerDashboard from './components/dashboards/ProsumerDashboard';
+import ConsumerDashboard from './components/dashboards/ConsumerDashboard';
+import AdminDashboard from './components/dashboards/AdminDashboard';
+import { User, ChevronDown, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import AuthModal from './components/AuthModal';
+import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
 const { Sider, Header, Content } = Layout;
 
 const App: React.FC = () => {
-  const [activeKey, setActiveKey] = useState('live-grid');
+  const [activeKey, setActiveKey] = useState('dashboard');
   const [simMode, setSimMode] = useState('standard');
-  const [userRole, setUserRoleState] = useState<'resident' | 'admin'>('resident');
+  const [userRole, setUserRoleState] = useState<'prosumer' | 'consumer' | 'admin'>('consumer');
   const [credits, setCredits] = useState(0);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
     // Fetch initial user and grid state
     const fetchData = async () => {
       try {
         const [userRes, gridRes] = await Promise.all([
-          fetch('/api/users/me'),
+          fetch('/api/auth/me'),
           fetch('/api/grid')
         ]);
         if (userRes.ok) {
           const userData = await userRes.json();
+          setUser(userData);
           setUserRoleState(userData.role);
-          setCredits(userData.credits);
+          setCredits(userData.credits !== undefined ? userData.credits : 1000);
         }
         if (gridRes.ok) {
           const gridData = await gridRes.json();
@@ -55,53 +60,60 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRoleChange = async (val: 'resident' | 'admin') => {
-    setUserRoleState(val);
-    try {
-      await fetch('/api/users/me', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: val })
-      });
-    } catch (err) {
-      console.error('Failed to update role', err);
-    }
-  };
-
   const renderContent = () => {
+    if (activeKey === 'dashboard') {
+      if (userRole === 'admin') return <AdminDashboard />;
+      if (userRole === 'prosumer') return <ProsumerDashboard />;
+      return <ConsumerDashboard />;
+    }
     switch (activeKey) {
       case 'live-grid':
         return <LiveGrid simMode={simMode} userRole={userRole} />;
-      case 'my-assets':
-        return <MyAssets simMode={simMode} userRole={userRole} />;
-      case 'marketplace':
-        return <Marketplace simMode={simMode} userRole={userRole} />;
       case 'ledger':
         return <LedgerView simMode={simMode} userRole={userRole} />;
       default:
-        return <LiveGrid simMode={simMode} userRole={userRole} />;
+        if (userRole === 'admin') return <AdminDashboard />;
+        if (userRole === 'prosumer') return <ProsumerDashboard />;
+        return <ConsumerDashboard />;
     }
   };
 
   const getPageTitle = () => {
     switch (activeKey) {
+      case 'dashboard': return `${userRole.charAt(0).toUpperCase() + userRole.slice(1)} Dashboard`;
       case 'live-grid': return 'Grid Overview';
-      case 'my-assets': return 'Energy Assets';
-      case 'marketplace': return 'Live Marketplace';
       case 'ledger': return 'Audit Trail';
-      default: return 'Grid Overview';
+      default: return 'Dashboard';
     }
   };
 
   const getBreadcrumb = () => {
     switch (activeKey) {
+      case 'dashboard': return 'Command Center';
       case 'live-grid': return 'System Overview';
-      case 'my-assets': return 'Asset Management';
-      case 'marketplace': return 'P2P Trade Floor';
       case 'ledger': return 'Immutable Ledger';
-      default: return 'System Overview';
+      default: return 'Command Center';
     }
   };
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+  };
+
+  if (!user) {
+    return (
+      <ConfigProvider theme={darkThemeConfig}>
+        <div className="flex items-center justify-center min-h-screen bg-[#04070a]">
+          <AuthModal open={true} onSuccess={(u) => {
+            setUser(u);
+            setUserRoleState(u.role);
+            setCredits(u.credits !== undefined ? u.credits : 1000);
+          }} />
+        </div>
+      </ConfigProvider>
+    );
+  }
 
   return (
     <ConfigProvider theme={darkThemeConfig}>
@@ -122,7 +134,7 @@ const App: React.FC = () => {
             zIndex: 1001,
           }}
         >
-          <Sidebar activeKey={activeKey} onSelect={setActiveKey} />
+          <Sidebar activeKey={activeKey} onSelect={setActiveKey} role={userRole} />
         </Sider>
 
         {/* Main Layout Area */}
@@ -177,15 +189,9 @@ const App: React.FC = () => {
               <div className="flex items-center gap-6 px-8 border-l border-white/5 h-12 my-auto">
                 <div className="flex flex-col items-end">
                   <div className="text-[9px] text-muted font-black uppercase tracking-widest leading-none mb-2">Platform Rank</div>
-                  <Select
-                    value={userRole}
-                    onChange={handleRoleChange}
-                    className="w-32 glass-select-header"
-                    options={[
-                      { value: 'resident', label: <span className="text-[10px] font-black uppercase">Resident</span> },
-                      { value: 'admin', label: <span className="text-[10px] font-black uppercase text-cyan-400">Grid Admin</span> }
-                    ]}
-                  />
+                  <div className="h-8 flex items-center px-4 rounded border border-white/10 bg-white/5 text-xs font-bold uppercase tracking-wider text-white">
+                    {userRole}
+                  </div>
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <div className="text-[8px] text-muted font-black uppercase">Zero-Trust</div>
@@ -201,7 +207,7 @@ const App: React.FC = () => {
               <div className="flex items-center gap-6 pl-4 h-12 my-auto border-l border-white/5">
                 <div className="flex flex-col items-end">
                   <div className="text-[9px] text-muted font-black uppercase tracking-widest leading-none mb-1">Energy Credits</div>
-                  <div className="text-lg font-black font-['Outfit'] neon-text-cyan leading-none">${credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className="text-lg font-black font-['Outfit'] neon-text-cyan leading-none">₹{credits.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                 </div>
                 <div className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity">
                   <Avatar
@@ -210,9 +216,10 @@ const App: React.FC = () => {
                     className="bg-white/5 border border-white/10 flex items-center justify-center"
                   />
                   <div className="hidden xl:flex flex-col">
-                    <span className="text-xs font-bold text-white leading-none mb-1">Major Tom</span>
-                    <span className="text-[10px] text-muted font-bold leading-none">Prosumer IV</span>
+                    <span className="text-xs font-bold text-white leading-none mb-1">{user?.username || 'Observer'}</span>
+                    <span className="text-[10px] text-muted font-bold leading-none capitalize">{user?.role || 'Guest'}</span>
                   </div>
+                  <LogOut size={16} className="text-muted hover:text-red-400 ml-2" onClick={handleLogout} />
                 </div>
               </div>
             </div>
@@ -235,7 +242,9 @@ const App: React.FC = () => {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.3, ease: 'easeOut' }}
                 >
-                  {renderContent()}
+                  <ErrorBoundary>
+                    {renderContent()}
+                  </ErrorBoundary>
                 </motion.div>
               </AnimatePresence>
             </div>

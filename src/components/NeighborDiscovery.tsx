@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, List, Tag, Button } from 'antd';
 import { MapPin, User, ArrowRight, Star, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useSocket } from '../contexts/SocketContext';
 
 interface Neighbor {
     id: string;
@@ -16,35 +17,22 @@ interface Neighbor {
 }
 
 const NeighborDiscovery: React.FC = () => {
-    const [neighbors, setNeighbors] = useState<Neighbor[]>([
-        { id: '1', name: 'Node-77X', distance: '120m', surplus: 4.2, price: 0.11, status: 'Nearby', type: 'Prosumer', trustScore: 98, isCertified: true },
-        { id: '2', name: 'Node-21B', distance: '450m', surplus: 2.1, price: 0.13, status: 'Nearby', type: 'Consumer', trustScore: 82, isCertified: false },
-        { id: '3', name: 'Node-09S', distance: '820m', surplus: 10.5, price: 0.09, status: 'District', type: 'Storage', trustScore: 95, isCertified: true },
-    ]);
+    const [neighbors, setNeighbors] = useState<Neighbor[]>([]);
+    const { socket } = useSocket();
 
     useEffect(() => {
-        const interval = setInterval(() => {
-            if (Math.random() > 0.7) {
-                const names = ['Node-99K', 'Node-33W', 'Node-85P', 'Node-41X'];
-                const distances = ['150m', '300m', '550m', '900m'];
-                const types = ['Prosumer', 'Consumer', 'Storage'];
-                const isCert = Math.random() > 0.4;
-                const newNeighbor = {
-                    id: Date.now().toString(),
-                    name: names[Math.floor(Math.random() * names.length)],
-                    distance: distances[Math.floor(Math.random() * distances.length)],
-                    surplus: +(Math.random() * 5 + 1).toFixed(1),
-                    price: +(Math.random() * 0.05 + 0.09).toFixed(2),
-                    status: 'Discovered',
-                    type: types[Math.floor(Math.random() * types.length)],
-                    trustScore: Math.floor(Math.random() * 30 + 70),
-                    isCertified: isCert
-                };
-                setNeighbors(prev => [newNeighbor, ...prev.slice(0, 3)]);
-            }
-        }, 8000);
-        return () => clearInterval(interval);
-    }, []);
+        if (!socket) return;
+
+        const handleDiscovery = (data: Neighbor) => {
+            setNeighbors(prev => [data, ...prev].slice(0, 8)); // Keep only the latest 8 discoveries
+        };
+
+        socket.on('neighbors:discovered', handleDiscovery);
+
+        return () => {
+            socket.off('neighbors:discovered', handleDiscovery);
+        };
+    }, [socket]);
 
     return (
         <Card className="glass-card mb-8">

@@ -2,33 +2,27 @@ import React from 'react';
 import { Card, Table, Tag, Input, Button, Row, Col } from 'antd';
 import { Database, Search, ShieldCheck, Download, Box, Activity, Zap, Lock, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 
 interface LedgerViewProps {
     simMode?: string;
-    userRole?: 'resident' | 'admin';
+    userRole?: 'prosumer' | 'consumer' | 'admin';
 }
 
 const LedgerView: React.FC<LedgerViewProps> = () => {
-    const [ledgerData, setLedgerData] = React.useState<any[]>([]);
-
-    React.useEffect(() => {
-        const fetchLedger = async () => {
-            try {
-                const res = await fetch('/api/ledger');
-                if (res.ok) {
-                    const data = await res.json();
-                    setLedgerData(data.map((tx: any) => ({
-                        ...tx,
-                        key: tx._id,
-                        timestamp: new Date(tx.timestamp).toLocaleTimeString()
-                    })));
-                }
-            } catch (err) {
-                console.error("Failed to fetch ledger", err);
-            }
-        };
-        fetchLedger();
-    }, []);
+    const { data: ledgerData = [], isLoading } = useQuery({
+        queryKey: ['ledger'],
+        queryFn: async () => {
+            const res = await fetch('/api/ledger');
+            if (!res.ok) throw new Error('Failed to fetch ledger');
+            const data = await res.json();
+            return data.map((tx: any) => ({
+                ...tx,
+                key: tx._id,
+                timestamp: new Date(tx.timestamp).toLocaleTimeString()
+            }));
+        }
+    });
 
     const columns = [
         {
@@ -175,6 +169,7 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
                     columns={columns}
                     dataSource={ledgerData}
                     pagination={false}
+                    loading={isLoading}
                     className="glass-table"
                 />
             </Card>

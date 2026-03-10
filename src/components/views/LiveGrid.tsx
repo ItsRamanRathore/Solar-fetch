@@ -10,7 +10,7 @@ import LiveBidding from '../LiveBidding';
 
 interface LiveGridProps {
     simMode?: string;
-    userRole?: 'resident' | 'admin';
+    userRole?: 'prosumer' | 'consumer' | 'admin';
 }
 
 const LiveGrid: React.FC<LiveGridProps> = ({ simMode, userRole }) => {
