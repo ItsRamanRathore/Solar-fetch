@@ -1,0 +1,304 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap');
+
+:root {
+  --bg-midnight: #04070a;
+  --bg-card: rgba(15, 23, 42, 0.6);
+  --neon-green: #00ff88;
+  --neon-cyan: #00e5ff;
+  --neon-purple: #8b5cf6;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-midnight);
+  color: var(--text-main);
+  min-height: 100vh;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Glassmorphism Classes */
+
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-shadow);
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.1);
+}
+
+.neon-text-green {
+  color: var(--neon-green);
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+}
+
+.neon-text-cyan {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+.neon-border-green {
+  border: 1px solid var(--neon-green);
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+}
+
+/* Scrollbar Styling */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-midnight);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-green);
+}
+
+/* Ant Design Overrides */
+
+.ant-layout {
+  background: transparent !important;
+}
+
+.ant-layout-sider {
+  background: rgba(15, 23, 42, 0.8) !important;
+  border-right: 1px solid var(--glass-border);
+}
+
+.ant-menu {
+  background: transparent !important;
+  color: var(--text-muted) !important;
+}
+
+.ant-menu-item-selected {
+  background: rgba(0, 255, 136, 0.1) !important;
+  color: var(--neon-green) !important;
+}
+
+.ant-table {
+  background: transparent !important;
+  color: var(--text-main) !important;
+}
+
+.ant-table-thead>tr>th {
+  background: rgba(30, 41, 59, 0.5) !important;
+  color: var(--neon-cyan) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+
+.ant-table-tbody>tr>td {
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+
+.ant-table-tbody>tr:hover>td {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* Pagination Contrast Fix */
+
+.ant-pagination-item a {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+.ant-pagination-item-active {
+  background: transparent !important;
+  border-color: var(--neon-green) !important;
+}
+
+.ant-pagination-item-active a {
+  color: var(--neon-green) !important;
+}
+
+.ant-pagination-prev .ant-pagination-item-link,
+.ant-pagination-next .ant-pagination-item-link {
+  color: rgba(255, 255, 255, 0.45) !important;
+  background-color: transparent !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Tag Legibility */
+
+.ant-tag {
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+  padding: 2px 8px !important;
+  letter-spacing: 0.05em !important;
+}
+
+.tag-verified {
+  background: rgba(0, 255, 136, 0.1) !important;
+  color: #00ff88 !important;
+  border: 1px solid rgba(0, 255, 136, 0.2) !important;
+}
+
+.tag-ledger {
+  background: rgba(0, 229, 255, 0.1) !important;
+  color: #00e5ff !important;
+  border: 1px solid rgba(0, 229, 255, 0.2) !important;
+}
+
+.sidebar-menu .ant-menu-item-selected {
+  background: rgba(0, 255, 136, 0.05) !important;
+  color: var(--neon-green) !important;
+  border-left: 3px solid var(--neon-green) !important;
+  box-shadow: inset 10px 0 20px -10px rgba(0, 255, 136, 0.2) !important;
+}
+
+.sidebar-menu .ant-menu-item:hover {
+  color: var(--neon-green) !important;
+}
+
+/* Custom Scrollbar Utility */
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-green);
+}
+
+/* Table Design */
+
+.custom-table .ant-table {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.custom-table .ant-table-thead>tr>th {
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  padding: 12px 16px !important;
+}
+
+.custom-table .ant-table-tbody>tr>td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03) !important;
+  padding: 12px 16px !important;
+}
+
+.animate-in {
+  animation-duration: 0.5s;
+  animation-fill-mode: both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation-name: fadeIn;
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(1rem);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.slide-in-from-bottom-4 {
+  animation-name: slideInFromBottom;
+}
+
+/* Custom Pagination */
+
+.custom-pagination .ant-pagination-item {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.custom-pagination .ant-pagination-item-active {
+  background: rgba(0, 255, 136, 0.1) !important;
+  border-color: var(--neon-green) !important;
+}
+
+.custom-pagination .ant-pagination-item-link {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: .5;
+  }
+}
+
+.animate-ping {
+  animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes ping {
+  75%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.\!border-y-0 {
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+}
+
+.\!border-l-0 {
+  border-left: 0 !important;
+}
+
+.\!rounded-none {
+  border-radius: 0 !important;
+}
