@@ -30,7 +30,7 @@ const App: React.FC = () => {
           const res = await fetch(url, {
             ...options,
             credentials: 'include',
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(25000),
           });
           return res;
         } catch (err) {
@@ -215,14 +215,7 @@ const App: React.FC = () => {
                     {userRole}
                   </div>
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <div className="text-[8px] text-muted font-black uppercase">Zero-Trust</div>
-                  <div className="flex gap-1">
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className={`w-1 h-3 rounded-full ${i <= (userRole === 'admin' ? 3 : 2) ? 'bg-[#00ff88] shadow-[0_0_5px_#00ff88]' : 'bg-white/10'}`} />
-                    ))}
-                  </div>
-                </div>
+
               </div>
 
               {/* User Profile & Credits */}

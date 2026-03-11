@@ -24,7 +24,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onSuccess }) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(values),
                     credentials: 'include',
-                    signal: AbortSignal.timeout(10000),
+                    signal: AbortSignal.timeout(25000),
                 });
 
                 const data = await res.json();

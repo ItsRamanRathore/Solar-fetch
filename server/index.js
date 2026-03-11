@@ -128,6 +128,17 @@ async function connectDB() {
 connectDB();
 
 // ── API Routes ───────────────────────────────────────────────────────
+// Middleware to ensure DB connection for Vercel serverless
+app.use('/api', async (req, res, next) => {
+    try {
+        await connectDB();
+        next();
+    } catch (err) {
+        console.error('API DB connection wait failed:', err.message);
+        res.status(503).json({ error: 'Database initializing or unavailable' });
+    }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/grid', gridRoutes);
 app.use('/api/assets', assetsRoutes);
@@ -136,7 +147,19 @@ app.use('/api/ledger', ledgerRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', message: 'API is running and connected to database' });
+    res.json({ 
+        status: 'ok', 
+        message: 'API is running',
+        mongodb: {
+            state: mongoose.connection.readyState,
+            stateName: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState],
+            connected: mongoose.connection.readyState === 1
+        },
+        env: {
+            nodeEnv: process.env.NODE_ENV,
+            hasMongoUri: !!process.env.MONGODB_URI
+        }
+    });
 });
 
 // ── Global Error Handler ─────────────────────────────────────────────
