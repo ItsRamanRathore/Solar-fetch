@@ -52,7 +52,10 @@ setInterval(() => {
     }
 }, 3000);
 
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:5173', 'http://localhost:5000'],
+    credentials: true,
+}));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -72,9 +75,29 @@ if (!MONGODB_URI) {
     process.exit(1);
 }
 
-mongoose.connect(MONGODB_URI)
-    .then(() => console.log('Successfully connected to MongoDB!'))
-    .catch((error) => console.error('Error connecting to MongoDB:', error.message));
+const connectWithRetry = async (retries = 5, delay = 2000) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            await mongoose.connect(MONGODB_URI);
+            console.log('Successfully connected to MongoDB!');
+            return;
+        } catch (error) {
+            console.error(`MongoDB connection attempt ${i + 1}/${retries} failed:`, error.message);
+            if (i < retries - 1) {
+                const waitTime = delay * Math.pow(2, i);
+                console.log(`Retrying in ${waitTime / 1000}s...`);
+                await new Promise(r => setTimeout(r, waitTime));
+            }
+        }
+    }
+    console.error('All MongoDB connection attempts failed. Server running without DB.');
+};
+connectWithRetry();
+
+mongoose.connection.on('disconnected', () => {
+    console.warn('MongoDB disconnected. Attempting to reconnect...');
+    connectWithRetry();
+});
 
 if (process.env.NODE_ENV !== 'production') {
     httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -23,25 +23,41 @@ const App: React.FC = () => {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    // Fetch initial user and grid state
+    // Fetch initial user and grid state with retry
+    const fetchWithRetry = async (url: string, options: RequestInit = {}, retries = 2): Promise<Response | null> => {
+      for (let i = 0; i <= retries; i++) {
+        try {
+          const res = await fetch(url, {
+            ...options,
+            credentials: 'include',
+            signal: AbortSignal.timeout(10000),
+          });
+          return res;
+        } catch (err) {
+          if (i === retries) {
+            console.error(`Failed to fetch ${url} after ${retries + 1} attempts:`, err);
+            return null;
+          }
+          await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+        }
+      }
+      return null;
+    };
+
     const fetchData = async () => {
-      try {
-        const [userRes, gridRes] = await Promise.all([
-          fetch('/api/auth/me'),
-          fetch('/api/grid')
-        ]);
-        if (userRes.ok) {
-          const userData = await userRes.json();
-          setUser(userData);
-          setUserRoleState(userData.role);
-          setCredits(userData.credits !== undefined ? userData.credits : 1000);
-        }
-        if (gridRes.ok) {
-          const gridData = await gridRes.json();
-          setSimMode(gridData.simMode);
-        }
-      } catch (err) {
-        console.error('Failed to fetch initial state:', err);
+      const [userRes, gridRes] = await Promise.all([
+        fetchWithRetry('/api/auth/me'),
+        fetchWithRetry('/api/grid')
+      ]);
+      if (userRes?.ok) {
+        const userData = await userRes.json();
+        setUser(userData);
+        setUserRoleState(userData.role);
+        setCredits(userData.credits !== undefined ? userData.credits : 1000);
+      }
+      if (gridRes?.ok) {
+        const gridData = await gridRes.json();
+        setSimMode(gridData.simMode);
       }
     };
     fetchData();
@@ -53,7 +69,9 @@ const App: React.FC = () => {
       await fetch('/api/grid', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ simMode: val })
+        body: JSON.stringify({ simMode: val }),
+        credentials: 'include',
+        signal: AbortSignal.timeout(10000),
       });
     } catch (err) {
       console.error('Failed to update simMode', err);
@@ -97,7 +115,11 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch (err) {
+      console.error('Logout request failed:', err);
+    }
     setUser(null);
   };
 

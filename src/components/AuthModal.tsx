@@ -15,33 +15,53 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onSuccess }) => {
     const handleSubmit = async (values: any) => {
         setLoading(true);
         const endpoint = activeTab === 'login' ? '/api/auth/login' : '/api/auth/register';
+        const maxRetries = 2;
 
-        try {
-            const res = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(values)
-            });
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(values),
+                    credentials: 'include',
+                    signal: AbortSignal.timeout(10000),
+                });
 
-            const data = await res.json();
-            if (res.ok) {
-                if (data.user?.status === 'pending') {
-                    message.warning('Account created! Awaiting Admin Approval.', 5);
-                } else if (data.user?.status === 'suspended') {
-                    message.error('Your account is suspended.');
+                const data = await res.json();
+                if (res.ok) {
+                    if (data.user?.status === 'pending') {
+                        message.warning('Account created! Awaiting Admin Approval.', 5);
+                    } else if (data.user?.status === 'suspended') {
+                        message.error('Your account is suspended.');
+                        setLoading(false);
+                        return;
+                    } else {
+                        message.success(`Successfully ${activeTab === 'login' ? 'logged in' : 'registered'}`);
+                    }
+                    onSuccess(data.user);
+                    setLoading(false);
                     return;
                 } else {
-                    message.success(`Successfully ${activeTab === 'login' ? 'logged in' : 'registered'}`);
+                    // Server returned an error response — don't retry (it's not a network issue)
+                    message.error(data.error || 'Authentication failed');
+                    setLoading(false);
+                    return;
                 }
-                onSuccess(data.user);
-            } else {
-                message.error(data.error || 'Authentication failed');
+            } catch (err: any) {
+                const isLastAttempt = attempt === maxRetries;
+                if (isLastAttempt) {
+                    if (err.name === 'TimeoutError') {
+                        message.error('Server is not responding. Please check if the backend is running.');
+                    } else {
+                        message.error('Network error. Please check your connection and try again.');
+                    }
+                } else {
+                    // Wait before retrying (exponential backoff)
+                    await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+                }
             }
-        } catch (err) {
-            message.error('Network error during authentication');
-        } finally {
-            setLoading(false);
         }
+        setLoading(false);
     };
 
     return (
