@@ -15,8 +15,13 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const [connected, setConnected] = useState(false);
 
     useEffect(() => {
-        // In dev, connect to the proxy target, in prod it'll be relative
-        const newSocket = io(import.meta.env.PROD ? '/' : 'http://localhost:5000', {
+        // Vercel serverless doesn't support WebSockets — skip in production
+        if (import.meta.env.PROD) {
+            console.log('Socket.io: Skipping in production (serverless)');
+            return;
+        }
+
+        const newSocket = io('http://localhost:5000', {
             withCredentials: true,
             transports: ['websocket', 'polling']
         });

@@ -6,8 +6,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
 
 import authRoutes from './routes/auth.js';
 import gridRoutes from './routes/grid.js';
@@ -22,38 +20,65 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-    cors: { origin: 'http://localhost:5173', credentials: true }
-});
 
-app.set('io', io);
+// ── Socket.IO + background simulation (local dev only) ──────────────
+// Vercel serverless cannot run persistent servers, WebSockets, or timers.
+const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
 
-// Background Simulation Loops
-setInterval(() => {
-    io.emit('grid:pulse', {
-        generation: +(142.8 + (Math.random() * 0.4 - 0.2)).toFixed(1),
-        health: Math.min(100, Math.max(85, +(98 + (Math.random() > 0.8 ? (Math.random() * 2 - 1) : 0)).toFixed(0))),
-        activeTrades: Math.floor(Math.random() * 5 + 10)
+if (!isProduction) {
+    const { createServer } = await import('http');
+    const { Server } = await import('socket.io');
+
+    const httpServer = createServer(app);
+    const io = new Server(httpServer, {
+        cors: { origin: 'http://localhost:5173', credentials: true }
     });
 
-    if (Math.random() > 0.7) {
-        io.emit('neighbors:discovered', {
-            id: Date.now().toString(),
-            name: ['Node-99K', 'Node-33W', 'Node-85P', 'Node-41X'][Math.floor(Math.random() * 4)],
-            distance: ['150m', '300m', '550m', '900m'][Math.floor(Math.random() * 4)],
-            surplus: +(Math.random() * 5 + 1).toFixed(1),
-            price: +(Math.random() * 5 + 5).toFixed(2),
-            status: 'Discovered',
-            type: ['Prosumer', 'Consumer', 'Storage'][Math.floor(Math.random() * 3)],
-            trustScore: Math.floor(Math.random() * 30 + 70),
-            isCertified: Math.random() > 0.4
+    app.set('io', io);
+
+    // Background Simulation Loops
+    setInterval(() => {
+        io.emit('grid:pulse', {
+            generation: +(142.8 + (Math.random() * 0.4 - 0.2)).toFixed(1),
+            health: Math.min(100, Math.max(85, +(98 + (Math.random() > 0.8 ? (Math.random() * 2 - 1) : 0)).toFixed(0))),
+            activeTrades: Math.floor(Math.random() * 5 + 10)
         });
-    }
-}, 3000);
+
+        if (Math.random() > 0.7) {
+            io.emit('neighbors:discovered', {
+                id: Date.now().toString(),
+                name: ['Node-99K', 'Node-33W', 'Node-85P', 'Node-41X'][Math.floor(Math.random() * 4)],
+                distance: ['150m', '300m', '550m', '900m'][Math.floor(Math.random() * 4)],
+                surplus: +(Math.random() * 5 + 1).toFixed(1),
+                price: +(Math.random() * 5 + 5).toFixed(2),
+                status: 'Discovered',
+                type: ['Prosumer', 'Consumer', 'Storage'][Math.floor(Math.random() * 3)],
+                trustScore: Math.floor(Math.random() * 30 + 70),
+                isCertified: Math.random() > 0.4
+            });
+        }
+    }, 3000);
+
+    const PORT = process.env.PORT || 5000;
+    httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+// ── CORS (dynamic: works for both local dev and Vercel production) ───
+const ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://solarfetch.vercel.app',
+];
 
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5000'],
+    origin: (origin, callback) => {
+        // Allow requests with no origin (server-to-server, curl, mobile apps)
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(null, true); // Be permissive — still set credentials
+        }
+    },
     credentials: true,
 }));
 app.use(express.json());
@@ -67,43 +92,42 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
-const PORT = process.env.PORT || 5000;
+// ── MongoDB connection (cached for Vercel serverless reuse) ──────────
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
     console.error('Missing MONGODB_URI in environment variables');
-    process.exit(1);
+    // Do NOT call process.exit() — it kills Vercel serverless functions
 }
 
-const connectWithRetry = async (retries = 5, delay = 2000) => {
-    for (let i = 0; i < retries; i++) {
-        try {
-            await mongoose.connect(MONGODB_URI);
+// Cache the connection so Vercel warm starts reuse it
+let cached = global._mongooseConnection || { conn: null, promise: null };
+global._mongooseConnection = cached;
+
+async function connectDB() {
+    if (!MONGODB_URI) return;
+    if (cached.conn) return cached.conn;
+
+    if (!cached.promise) {
+        cached.promise = mongoose.connect(MONGODB_URI).then((m) => {
             console.log('Successfully connected to MongoDB!');
-            return;
-        } catch (error) {
-            console.error(`MongoDB connection attempt ${i + 1}/${retries} failed:`, error.message);
-            if (i < retries - 1) {
-                const waitTime = delay * Math.pow(2, i);
-                console.log(`Retrying in ${waitTime / 1000}s...`);
-                await new Promise(r => setTimeout(r, waitTime));
-            }
-        }
+            return m;
+        });
     }
-    console.error('All MongoDB connection attempts failed. Server running without DB.');
-};
-connectWithRetry();
 
-mongoose.connection.on('disconnected', () => {
-    console.warn('MongoDB disconnected. Attempting to reconnect...');
-    connectWithRetry();
-});
+    try {
+        cached.conn = await cached.promise;
+    } catch (error) {
+        cached.promise = null;
+        console.error('MongoDB connection failed:', error.message);
+    }
 
-if (process.env.NODE_ENV !== 'production') {
-    httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    return cached.conn;
 }
 
-// API Routes
+connectDB();
+
+// ── API Routes ───────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/grid', gridRoutes);
 app.use('/api/assets', assetsRoutes);
@@ -115,7 +139,7 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'API is running and connected to database' });
 });
 
-// Global Error Handler
+// ── Global Error Handler ─────────────────────────────────────────────
 app.use((err, req, res, next) => {
     if (err.name === 'ZodError') {
         return res.status(400).json({ error: 'Validation failed', details: err.errors });

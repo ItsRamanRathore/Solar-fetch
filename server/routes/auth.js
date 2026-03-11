@@ -7,6 +7,14 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
+const isProd = process.env.NODE_ENV === 'production';
+const cookieOptions = {
+    httpOnly: true,
+    maxAge: 3 * 24 * 60 * 60 * 1000,
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+};
+
 const registerSchema = z.object({
     username: z.string().min(3),
     email: z.string().email(),
@@ -49,7 +57,7 @@ router.post('/register', async (req, res) => {
         });
 
         const token = createToken(user._id);
-        res.cookie('jwt', token, { httpOnly: true, maxAge: 3 * 24 * 60 * 60 * 1000, secure: process.env.NODE_ENV === 'production' });
+        res.cookie('jwt', token, cookieOptions);
 
         res.status(201).json({ user: { id: user._id, username: user.username, email: user.email, role: user.role, status: user.status } });
     } catch (err) {
@@ -77,7 +85,7 @@ router.post('/login', async (req, res) => {
         }
 
         const token = createToken(user._id);
-        res.cookie('jwt', token, { httpOnly: true, maxAge: 3 * 24 * 60 * 60 * 1000, secure: process.env.NODE_ENV === 'production' });
+        res.cookie('jwt', token, cookieOptions);
 
         res.json({ user: { id: user._id, username: user.username, email: user.email, role: user.role, status: user.status, credits: user.credits, trustScore: user.trustScore, isCertified: user.isCertified } });
     } catch (err) {
@@ -91,7 +99,7 @@ router.post('/login', async (req, res) => {
 });
 
 router.post('/logout', (req, res) => {
-    res.cookie('jwt', '', { maxAge: 1 });
+    res.cookie('jwt', '', { ...cookieOptions, maxAge: 1 });
     res.status(200).json({ message: 'Logged out successfully' });
 });
 
