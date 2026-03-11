@@ -9,6 +9,7 @@ const transactionSchema = new mongoose.Schema({
     settlementTotal: { type: Number, required: true },
     hash: { type: String, required: true },
     provenance: { type: String, required: true },
+    greenHash: { type: String }, // ESG Minting
     timestamp: { type: Date, default: Date.now },
     status: { type: String, enum: ['VERIFIED', 'SETTLED', 'PENDING'], default: 'PENDING' }
 }, { timestamps: true });

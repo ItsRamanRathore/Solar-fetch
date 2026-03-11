@@ -63,6 +63,10 @@ const govSchema = z.object({
     isTradingPaused: z.boolean().optional(),
     priceCap: z.number().positive().optional(),
     floorPrice: z.number().positive().optional(),
+    globalDirective: z.object({
+        message: z.string(),
+        active: z.boolean()
+    }).optional()
 });
 
 // Update governance state
@@ -77,6 +81,13 @@ router.put('/governance', async (req, res, next) => {
         if (updates.isTradingPaused !== undefined) gov.isTradingPaused = updates.isTradingPaused;
         if (updates.priceCap !== undefined) gov.priceCap = updates.priceCap;
         if (updates.floorPrice !== undefined) gov.floorPrice = updates.floorPrice;
+        
+        if (updates.globalDirective) {
+            gov.globalDirective = {
+                ...updates.globalDirective,
+                updatedAt: new Date()
+            };
+        }
 
         await gov.save();
         res.json(gov);

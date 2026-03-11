@@ -8,7 +8,15 @@ const userSchema = new mongoose.Schema({
     status: { type: String, enum: ['pending', 'approved', 'suspended'], default: 'pending' },
     credits: { type: Number, default: 1000 },
     trustScore: { type: Number, default: 100 },
-    isCertified: { type: Boolean, default: false }
+    isCertified: { type: Boolean, default: false },
+    x: { type: Number, default: () => Math.random() * 800 },
+    y: { type: Number, default: () => Math.random() * 600 },
+    // Phase 2: Intelligence & VBM
+    batteryCapacity: { type: Number, default: 50.0 }, // Max Storage in kWh
+    storedEnergy: { type: Number, default: 10.0 },   // Current Storage in kWh
+    isBrokerActive: { type: Boolean, default: false },
+    pufIdentity: { type: String, unique: true, sparse: true }, // Hardware Hardware verification
+    creditRank: { type: String, enum: ['standard', 'premium', 'governor'], default: 'standard' }
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);

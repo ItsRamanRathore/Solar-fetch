@@ -10,7 +10,8 @@ import AdminDashboard from './components/dashboards/AdminDashboard';
 import { User, ChevronDown, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AuthModal from './components/AuthModal';
-import ErrorBoundary from './components/ErrorBoundary';
+import DirectiveTicker from './components/DirectiveTicker';
+import NotificationDrawer from './components/NotificationDrawer';
 import './index.css';
 
 const { Sider, Header, Content } = Layout;
@@ -33,9 +34,10 @@ const App: React.FC = () => {
             signal: AbortSignal.timeout(25000),
           });
           return res;
-        } catch (err) {
+        } catch (err: any) {
+          console.warn(`Fetch attempt ${i + 1} for ${url} failed:`, err.message || err);
           if (i === retries) {
-            console.error(`Failed to fetch ${url} after ${retries + 1} attempts:`, err);
+            console.error(`Final failure fetching ${url} after ${retries + 1} attempts:`, err);
             return null;
           }
           await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
@@ -79,21 +81,41 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
+    const dashboardProps = { simMode, userRole };
+    
+    let content;
     if (activeKey === 'dashboard') {
-      if (userRole === 'admin') return <AdminDashboard />;
-      if (userRole === 'prosumer') return <ProsumerDashboard />;
-      return <ConsumerDashboard />;
+      if (userRole === 'admin') content = <AdminDashboard {...dashboardProps} />;
+      else if (userRole === 'prosumer') content = <ProsumerDashboard {...dashboardProps} />;
+      else content = <ConsumerDashboard {...dashboardProps} />;
+    } else {
+      switch (activeKey) {
+        case 'live-grid':
+          content = <LiveGrid simMode={simMode} userRole={userRole} />;
+          break;
+        case 'ledger':
+          content = <LedgerView simMode={simMode} userRole={userRole} />;
+          break;
+        default:
+          if (userRole === 'admin') content = <AdminDashboard {...dashboardProps} />;
+          else if (userRole === 'prosumer') content = <ProsumerDashboard {...dashboardProps} />;
+          else content = <ConsumerDashboard {...dashboardProps} />;
+      }
     }
-    switch (activeKey) {
-      case 'live-grid':
-        return <LiveGrid simMode={simMode} userRole={userRole} />;
-      case 'ledger':
-        return <LedgerView simMode={simMode} userRole={userRole} />;
-      default:
-        if (userRole === 'admin') return <AdminDashboard />;
-        if (userRole === 'prosumer') return <ProsumerDashboard />;
-        return <ConsumerDashboard />;
-    }
+
+    return (
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`${activeKey}-${simMode}`}
+          initial={{ opacity: 0.5, filter: 'blur(10px) brightness(2)', x: simMode === 'grid-fail' ? [-10, 10, -10, 0] : 0 }}
+          animate={{ opacity: 1, filter: 'blur(0px) brightness(1)', x: 0 }}
+          exit={{ opacity: 0, scale: 0.98, filter: 'hue-rotate(90deg)' }}
+          transition={{ duration: 0.4, ease: "easeInOut" }}
+        >
+          {content}
+        </motion.div>
+      </AnimatePresence>
+    );
   };
 
   const getPageTitle = () => {
@@ -140,6 +162,7 @@ const App: React.FC = () => {
   return (
     <ConfigProvider theme={darkThemeConfig}>
       <Layout style={{ minHeight: '100vh', background: '#04070a' }}>
+        <DirectiveTicker />
         {/* Fixed Sider */}
         <Sider
           width={260}
@@ -160,7 +183,17 @@ const App: React.FC = () => {
         </Sider>
 
         {/* Main Layout Area */}
-        <Layout style={{ marginLeft: 260, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Layout 
+          style={{ 
+            marginLeft: 260, 
+            minHeight: '100vh', 
+            display: 'flex', 
+            flexDirection: 'column',
+            filter: simMode === 'grid-fail' ? 'hue-rotate(-15deg) saturate(1.2)' : simMode === 'sunset' ? 'hue-rotate(200deg) brightness(0.8)' : 'none',
+            transition: 'filter 1s ease-in-out'
+          }}
+          className={simMode === 'grid-fail' ? 'animate-pulse border-red-500/20' : ''}
+        >
           {/* Global SaaS Header */}
           <Header
             className={`px-10 flex items-center justify-between border-b border-[rgba(255,255,255,0.06)] backdrop-blur-2xl sticky top-0 z-[1000] transition-colors duration-500 ${simMode === 'grid-fail' ? 'bg-[rgba(153,50,50,0.15)]' : 'bg-[rgba(15,23,42,0.98)]'}`}
@@ -249,19 +282,7 @@ const App: React.FC = () => {
             }}
           >
             <div className="max-w-[1600px] mx-auto space-y-12">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeKey}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3, ease: 'easeOut' }}
-                >
-                  <ErrorBoundary>
-                    {renderContent()}
-                  </ErrorBoundary>
-                </motion.div>
-              </AnimatePresence>
+              {renderContent()}
             </div>
           </Content>
         </Layout>

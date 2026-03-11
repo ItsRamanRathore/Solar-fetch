@@ -109,16 +109,36 @@ export async function runMatchingEngine(req) {
             await bestSell.save();
             await bestBuy.save();
 
+            // Phase 2: Advanced Green Asset Logic (ESG Minting)
+            let greenHash = null;
+            if (bestSell.maker.isCertified) {
+                const esgData = `${bestSell.maker._id}-${bestBuy.maker._id}-${settleVolume}-${Date.now()}`;
+                greenHash = 'ESG-' + crypto.createHash('sha256').update(esgData).digest('hex').substring(0, 16).toUpperCase();
+            }
+
+            // Phase 2: Hardware-Sync Verification (mTLS/PUF)
+            const hardwareVerified = !!bestSell.maker.pufIdentity || bestSell.maker.isCertified;
+            if (!hardwareVerified && Math.random() > 0.9) {
+                console.error(`[SECURITY ALERT] Unverified hardware detected for ${bestSell.maker.username}. Potential Ghost Energy attempt.`);
+                // In a real system, we'd block this. For simulation, we log it.
+            }
+
             // Create a settlement transaction in the ledger
+            const txVolume = settleVolume;
+            const txPrice = settlePrice;
+            const txData = `${bestSell.maker.username}-${bestBuy.maker.username}-${txVolume}-${txPrice}-${Date.now()}`;
+            const txHash = '0x' + crypto.createHash('sha256').update(txData).digest('hex').substring(0, 16).toUpperCase();
+
             const tx = await Transaction.create({
                 txid: 'TX-' + Math.floor(Math.random() * 100000),
                 from: bestSell.maker.username,
                 to: bestBuy.maker.username,
-                amount: settleVolume,
-                price: settlePrice,
-                settlementTotal: parseFloat((settleVolume * settlePrice).toFixed(2)),
-                hash: '0x' + crypto.randomBytes(8).toString('hex'),
-                provenance: bestSell.maker.isCertified ? 'Verified Solar/Wind' : 'Standard Green',
+                amount: txVolume,
+                price: txPrice,
+                settlementTotal: parseFloat((txVolume * txPrice).toFixed(2)),
+                hash: txHash,
+                greenHash, // ESG Minting
+                provenance: bestSell.maker.isCertified ? 'Verified Solar/Wind' : (hardwareVerified ? 'Hardware Verified' : 'Standard Green'),
                 status: 'SETTLED'
             });
 
@@ -133,6 +153,7 @@ export async function runMatchingEngine(req) {
                     txid: tx.txid,
                     price: settlePrice,
                     volume: settleVolume,
+                    greenHash: tx.greenHash, // Signal ESG Minting
                     time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
                     type: 'Match'
                 });
@@ -146,7 +167,17 @@ router.post('/seed', async (req, res, next) => {
     try {
         let dummyUser = await User.findOne({ username: 'Prosumer_01' });
         if (!dummyUser) {
-            dummyUser = await User.create({ username: 'Prosumer_01', email: 'prosumer01@sol.net', password: 'password', role: 'resident', credits: 500, trustScore: 98, isCertified: true });
+            dummyUser = await User.create({ 
+                username: 'Prosumer_01', 
+                email: 'prosumer01@sol.net', 
+                password: 'password', 
+                role: 'prosumer', 
+                credits: 500, 
+                trustScore: 98, 
+                isCertified: true,
+                x: 200,
+                y: 300
+            });
         }
         await Order.create({ maker: dummyUser._id, type: 'sell', kwh: 5.4, remainingKwh: 5.4, price: 8.50 });
         await Order.create({ maker: dummyUser._id, type: 'buy', kwh: 12, remainingKwh: 12, price: 7.00 });

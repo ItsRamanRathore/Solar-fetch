@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, Row, Col, Tag, Button } from 'antd';
 import { Activity, Server } from 'lucide-react';
-import NeighborhoodMap from '../NeighborhoodMap';
+import SpatialMap from '../SpatialMap';
 import EnergyCharts from '../EnergyCharts';
 import NeighborDiscovery from '../NeighborDiscovery';
 import HeaderStats from '../HeaderStats';
@@ -65,7 +65,7 @@ const LiveGrid: React.FC<LiveGridProps> = ({ simMode, userRole }) => {
                 </Row>
             )}
             <DashboardGrid
-                topLeft={<NeighborhoodMap />}
+                topLeft={<SpatialMap />}
                 topRight={<LiveBidding />}
                 bottomLeft={<EnergyCharts />}
                 bottomRight={<NeighborDiscovery />}

@@ -22,9 +22,18 @@ router.get('/me', async (req, res) => {
     }
 });
 
+router.get('/prosumers', async (req, res) => {
+    try {
+        const prosumers = await User.find({ role: 'prosumer', status: 'approved' }).select('username trustScore isCertified credits');
+        res.json(prosumers);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.put('/me', async (req, res) => {
     try {
-        const user = await User.findOneAndUpdate({ username: 'Major Tom (You)' }, req.body, { new: true, upsert: true });
+        const user = await User.findOneAndUpdate({ username: 'Major Tom (You)' }, req.body, { returnDocument: 'after', upsert: true });
         res.json(user);
     } catch (err) {
         res.status(500).json({ error: err.message });

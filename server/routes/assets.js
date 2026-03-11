@@ -26,10 +26,24 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Toggle Smart Broker
+router.post('/broker/toggle', async (req, res) => {
+    try {
+        const user = await User.findOne({ username: 'Major Tom (You)' });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        user.isBrokerActive = !user.isBrokerActive;
+        await user.save();
+        res.json({ isBrokerActive: user.isBrokerActive });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Update asset status
 router.put('/:id', async (req, res) => {
     try {
-        const asset = await Asset.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const asset = await Asset.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' });
         res.json(asset);
     } catch (err) {
         res.status(500).json({ error: err.message });

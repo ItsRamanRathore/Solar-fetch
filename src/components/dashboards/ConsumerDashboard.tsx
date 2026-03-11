@@ -1,14 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Table, Form, InputNumber, Button, message, Progress } from 'antd';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Zap, Activity, Battery, ShieldAlert, ZapOff } from 'lucide-react';
+import { Zap, Activity, Battery, ShieldAlert, ZapOff, CheckCircle, X, MapPin } from 'lucide-react';
 import { useSocket } from '../../contexts/SocketContext';
 
-const ConsumerDashboard: React.FC = () => {
+interface ConsumerDashboardProps {
+    simMode: string;
+    userRole: string;
+}
+
+const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
     const queryClient = useQueryClient();
     const { socket } = useSocket();
     const [form] = Form.useForm();
     const [currentTime, setCurrentTime] = useState(new Date().getHours());
+    
+    // Ant Design switch states for "Smart Home Hub" simulation
+    const [switches, setSwitches] = useState({
+        hvac: true,
+        ev: false,
+        lux: true,
+        security: true
+    });
+
+    const [selectedProsumer, setSelectedProsumer] = useState<any>(null);
+
+    const isGridFail = simMode === 'grid-fail';
+    const isSunset = simMode === 'sunset';
 
     // Setup WebSockets
     useEffect(() => {
@@ -28,6 +46,13 @@ const ConsumerDashboard: React.FC = () => {
         };
     }, [socket, queryClient]);
 
+    // Fetch prosumers for directory
+    const { data: prosumers } = useQuery({
+        queryKey: ['prosumers'],
+        queryFn: () => fetch('/api/users/prosumers').then(res => res.json()),
+        refetchInterval: 10000
+    });
+
     // Fetch active orders (we only care about sells for the supply feed)
     const { data: orders, isLoading } = useQuery({
         queryKey: ['orders'],
@@ -39,7 +64,13 @@ const ConsumerDashboard: React.FC = () => {
         refetchInterval: 5000,
     });
 
-    const sells = orders?.sells || [];
+    // Apply simulation scarcity pricing
+    const rawSells = orders?.sells || [];
+    const sells = rawSells.map((s: any) => ({
+        ...s,
+        price: isSunset ? s.price * 1.35 : isGridFail ? s.price * 1.5 : s.price,
+        isSelected: selectedProsumer && s.maker?.username === selectedProsumer.username
+    }));
 
     // Placing a Bid
     const placeBidMutation = useMutation({
@@ -56,12 +87,23 @@ const ConsumerDashboard: React.FC = () => {
         onSuccess: () => {
             message.success('Bid placed successfully');
             form.resetFields();
+            setSelectedProsumer(null);
             queryClient.invalidateQueries({ queryKey: ['orders'] });
         },
         onError: (err: Error) => {
             message.error(err.message);
         }
     });
+
+    // Auto-fill bid if prosumer selected
+    useEffect(() => {
+        if (selectedProsumer) {
+            const offer = sells.find((s: any) => s.maker?.username === selectedProsumer.username);
+            if (offer) {
+                form.setFieldsValue({ price: offer.price });
+            }
+        }
+    }, [selectedProsumer, sells, form]);
 
     // Handle Bidding Submission
     const onFinish = (values: any) => {
@@ -70,9 +112,9 @@ const ConsumerDashboard: React.FC = () => {
 
     // Calculate usage forecasting
     const nextHour = (currentTime + 1) % 24;
-    const isEvening = nextHour >= 18 && nextHour <= 22;
-    const predictedLoad = isEvening ? 12.5 : 4.2;
-    const riskLevel = isEvening ? 'High' : 'Low';
+    const isEvening = nextHour >= 18 && nextHour <= 22 || isSunset;
+    const predictedLoad = isGridFail ? 15.8 : (isEvening ? 12.5 : 4.2);
+    const riskLevel = isGridFail ? 'Critical' : (isEvening ? 'High' : 'Low');
 
     return (
         <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-8">
@@ -80,6 +122,25 @@ const ConsumerDashboard: React.FC = () => {
                 <div>
                     <h2 className="text-3xl font-black font-['Outfit'] uppercase tracking-tighter text-white m-0">Consumer Market</h2>
                     <p className="text-muted tracking-wide text-xs uppercase mt-1">Energy Procurement & Bidding</p>
+                </div>
+                <div className="flex gap-4">
+                    {selectedProsumer && (
+                        <div className="px-4 py-2 rounded-full border border-cyan-500/50 bg-cyan-500/10 text-cyan-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                           <Zap size={12} fill="currentColor" /> P2P Link: {selectedProsumer.username}
+                           <X size={12} className="cursor-pointer hover:text-white" onClick={() => setSelectedProsumer(null)} />
+                        </div>
+                    )}
+                    {isGridFail && (
+                        <div className="flex-1 max-w-md mx-8">
+                            <div className="px-6 py-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center gap-4 animate-shake">
+                                <ShieldAlert className="text-red-500" size={20} />
+                                <div>
+                                    <div className="text-xs font-black text-red-500 uppercase tracking-widest">Emergency Load Shedding</div>
+                                    <div className="text-[10px] text-white/70">Non-essential devices disabled. Preserving battery for security.</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -116,8 +177,10 @@ const ConsumerDashboard: React.FC = () => {
                                     <div>
                                         <div className="text-xs font-bold text-white mb-1">Recommendation</div>
                                         <div className="text-[11px] text-muted leading-relaxed">
-                                            {isEvening
-                                                ? "Evening peak approaching. Secure bids now before neighborhood prices surge by estimated 15%."
+                                            {isGridFail
+                                                ? "SYSTEM ALERT: Turn off AC/Luxury devices to save ₹50/hour. High grid strain detected."
+                                                : isEvening
+                                                ? "Evening peak approaching. Secure bids now before neighborhood prices surge by estimated 35%."
                                                 : "Grid load is optimal. Good time to buy baseline power at lower rates."}
                                         </div>
                                     </div>
@@ -151,69 +214,124 @@ const ConsumerDashboard: React.FC = () => {
                             </div>
 
                             <div>
-                                <div className="text-[10px] text-muted font-bold uppercase tracking-widest mb-4">Market Intel</div>
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center p-3 rounded-lg bg-white/5 border border-white/10">
-                                        <span className="text-xs text-muted">Current Floor Ask</span>
-                                        <span className="text-sm font-bold text-white">₹{sells.length > 0 ? (sells[0].price ?? 0).toFixed(2) : '---'}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-3 rounded-lg bg-white/5 border border-white/10">
-                                        <span className="text-xs text-muted">Total Available Vol</span>
-                                        <span className="text-sm font-bold neon-text-cyan">{sells.reduce((acc: any, curr: any) => acc + (curr.remainingKwh ?? 0), 0).toFixed(2)} kWh</span>
-                                    </div>
-                                    <div className="flex justify-between items-center p-3 rounded-lg bg-white/5 border border-white/10">
-                                        <span className="text-xs text-muted">Active Suppliers</span>
-                                        <span className="text-sm font-bold text-white">{new Set(sells.map((s: any) => s.maker?.username).filter(Boolean)).size} Nodes</span>
-                                    </div>
+                                <div className="text-[10px] text-muted font-bold uppercase tracking-widest mb-4">Smart Home API Hub</div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {[
+                                        { key: 'hvac', label: 'Climate Control', essential: true },
+                                        { key: 'security', label: 'Node Security', essential: true },
+                                        { key: 'ev', label: 'Fast Charge (EV)', essential: false },
+                                        { key: 'lux', label: 'Entertainment', essential: false },
+                                    ].map(dev => (
+                                        <div 
+                                            key={dev.key} 
+                                            className={`p-3 rounded-lg border transition-all cursor-pointer ${isGridFail && !dev.essential ? 'bg-black/40 border-white/5 opacity-40 grayscale pointer-events-none' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+                                            onClick={() => {
+                                                if (isGridFail && !dev.essential) return;
+                                                setSwitches(prev => ({ ...prev, [dev.key]: !(prev as any)[dev.key] }));
+                                            }}
+                                        >
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-[10px] font-bold text-white uppercase">{dev.label}</span>
+                                                <div className={`w-3 h-3 rounded-full ${isGridFail && !dev.essential ? 'bg-red-500/20' : (switches as any)[dev.key] ? 'bg-cyan-500 shadow-[0_0_8px_white]' : 'bg-white/10'}`} />
+                                            </div>
+                                            {!dev.essential && isGridFail && <div className="text-[8px] text-red-500 font-black uppercase mt-1">Force-Disabled</div>}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </div>
                     </Card>
                 </Col>
 
-                {/* Available Supply Feed */}
+                {/* Supply Feed & Prosumer Directory */}
                 <Col xs={24}>
-                    <Card className="glass-card" bodyStyle={{ padding: '32px' }}>
-                        <div className="flex justify-between items-center mb-6">
-                            <div>
-                                <h3 className="text-lg font-black font-['Outfit'] uppercase text-white m-0 tracking-wider flex items-center gap-2">
-                                    <ZapOff size={20} className="text-[#00ff88]" /> Available Supply Feed
-                                </h3>
-                                <p className="text-[10px] text-muted uppercase tracking-widest mt-1">Live scrolling asks from prosumer nodes</p>
+                    <div className="space-y-8">
+                        {/* Prosumer Directory */}
+                        <Card className="glass-card" bodyStyle={{ padding: '32px' }}>
+                            <div className="flex justify-between items-center mb-8">
+                                <div>
+                                    <h3 className="text-lg font-black font-['Outfit'] uppercase text-white m-0 tracking-wider flex items-center gap-2">
+                                        <MapPin size={20} className="text-cyan-400" /> Nearby Prosumers
+                                    </h3>
+                                    <p className="text-[10px] text-muted uppercase tracking-widest mt-1">Live Discovery of local energy nodes</p>
+                                </div>
                             </div>
-                        </div>
-
-                        <Table
-                            dataSource={sells}
-                            loading={isLoading}
-                            rowKey="_id"
-                            pagination={{ pageSize: 5 }}
-                            className="bg-transparent"
-                            rowClassName="hover:bg-white/5 transition-colors"
-                            columns={[
-                                {
-                                    title: 'SELLER NODE',
-                                    dataIndex: ['maker', 'username'],
-                                    render: (name, record: any) => (
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-bold text-white">{name}</span>
-                                            {record.maker?.isCertified && <span className="px-1.5 py-0.5 rounded bg-[#00ff88]/20 text-[#00ff88] text-[8px] font-black uppercase border border-[#00ff88]/30">Vetted</span>}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {prosumers?.map((p: any) => (
+                                    <div 
+                                        key={p._id} 
+                                        className={`p-4 rounded-xl border transition-all cursor-pointer ${selectedProsumer?.username === p.username ? 'bg-cyan-500/10 border-cyan-500/40 shadow-[0_0_20px_rgba(0,255,224,0.1)]' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                                        onClick={() => setSelectedProsumer(p)}
+                                    >
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-black text-white uppercase">{p.username}</span>
+                                                <span className="text-[9px] text-muted font-bold">~150m away</span>
+                                            </div>
+                                            {p.isCertified && <CheckCircle size={14} className="text-[#00ff88]" />}
                                         </div>
-                                    ),
-                                },
-                                {
-                                    title: 'AVAILABLE KWH',
-                                    dataIndex: 'remainingKwh',
-                                    render: (kwh) => <span className="text-sm font-bold neon-text-green">{(kwh ?? 0).toFixed(2)}</span>,
-                                },
-                                {
-                                    title: 'ASK PRICE',
-                                    dataIndex: 'price',
-                                    render: (price) => <span className="text-sm font-black text-white font-['Outfit']">₹{(price ?? 0).toFixed(2)}/kWh</span>,
-                                },
-                            ]}
-                        />
-                    </Card>
+                                        <div className="flex items-center justify-between mt-auto">
+                                            <span className="text-[9px] text-muted font-black uppercase tracking-widest">Trust: {p.trustScore}%</span>
+                                            <Button size="small" type={selectedProsumer?.username === p.username ? "primary" : "default"} className={`text-[9px] h-6 px-3 border-none font-bold uppercase transition-all ${selectedProsumer?.username === p.username ? 'bg-cyan-500 text-black shadow-[0_0_10px_rgba(0,255,224,0.4)]' : 'bg-white/5 text-muted hover:bg-white/10'}`}>
+                                                {selectedProsumer?.username === p.username ? 'Connected' : 'Connect'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                                {(!prosumers || prosumers.length === 0) && <div className="col-span-3 py-8 text-center text-xs text-muted font-bold uppercase italic border border-dashed border-white/10 rounded-xl">No local prosumers discovered in this sector</div>}
+                            </div>
+                        </Card>
+
+                        <Card className="glass-card" bodyStyle={{ padding: '32px' }}>
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h3 className="text-lg font-black font-['Outfit'] uppercase text-white m-0 tracking-wider flex items-center gap-2">
+                                        <ZapOff size={20} className="text-[#00ff88]" /> Active Supply Feed
+                                    </h3>
+                                    <p className="text-[10px] text-muted uppercase tracking-widest mt-1">Live scrolling asks from prosumer nodes</p>
+                                </div>
+                            </div>
+
+                            <Table
+                                dataSource={sells}
+                                loading={isLoading}
+                                rowKey="_id"
+                                pagination={{ pageSize: 5 }}
+                                className="bg-transparent"
+                                rowClassName={(record: any) => `transition-all ${record.isSelected ? 'bg-cyan-500/10 border-l-2 border-l-cyan-400' : 'hover:bg-white/5'}`}
+                                columns={[
+                                    {
+                                        title: 'SELLER NODE',
+                                        dataIndex: ['maker', 'username'],
+                                        render: (name, record: any) => (
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-1.5 h-1.5 rounded-full ${record.isSelected ? 'bg-cyan-400 animate-pulse' : 'bg-white/20'}`} />
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-xs font-bold ${record.isSelected ? 'text-cyan-400' : 'text-white'} uppercase`}>{name}</span>
+                                                    {record.maker?.isCertified && <span className="px-1.5 py-0.5 rounded bg-[#00ff88]/20 text-[#00ff88] text-[8px] font-black uppercase border border-[#00ff88]/30">Vetted</span>}
+                                                </div>
+                                            </div>
+                                        ),
+                                    },
+                                    {
+                                        title: 'AVAILABLE KWH',
+                                        dataIndex: 'remainingKwh',
+                                        render: (kwh) => <span className="text-sm font-bold neon-text-green">{(kwh ?? 0).toFixed(2)}</span>,
+                                    },
+                                    {
+                                        title: 'ASK PRICE',
+                                        dataIndex: 'price',
+                                        render: (price) => (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-black text-white font-['Outfit']">₹{(price ?? 0).toFixed(2)}/kWh</span>
+                                                {(isSunset || isGridFail) && <span className="text-[8px] font-black text-orange-400 animate-pulse">+35% SURGE</span>}
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
+                        </Card>
+                    </div>
                 </Col>
             </Row>
         </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, Table, Tag, Input, Button, Row, Col } from 'antd';
-import { Database, Search, ShieldCheck, Download, Box, Activity, Zap, Lock, ArrowRight } from 'lucide-react';
+import { Database, Search, ShieldCheck, Download, Box, Activity, Zap, Lock, ArrowRight, Award } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 
@@ -73,6 +73,17 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
             dataIndex: 'amount',
             key: 'amount',
             render: (val: number) => <span className="font-black text-white">{val} <span className="text-[10px] text-muted">kWh</span></span>
+        },
+        {
+            title: 'ESG Mint',
+            dataIndex: 'greenHash',
+            key: 'greenHash',
+            render: (hash: string) => hash ? (
+                <div className="flex items-center gap-1">
+                    <Award size={14} className="text-cyan-400" />
+                    <span className="text-[9px] font-mono text-cyan-400/70">{hash.substring(0, 8)}...</span>
+                </div>
+            ) : <span className="text-[10px] text-muted">N/A</span>
         },
         {
             title: 'Status',

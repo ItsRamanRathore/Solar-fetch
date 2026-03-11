@@ -48,9 +48,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ open, onSuccess }) => {
                     return;
                 }
             } catch (err: any) {
+                console.error('Authentication fetch error:', err);
                 const isLastAttempt = attempt === maxRetries;
                 if (isLastAttempt) {
-                    if (err.name === 'TimeoutError') {
+                    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
                         message.error('Server is not responding. Please check if the backend is running.');
                     } else {
                         message.error('Network error. Please check your connection and try again.');

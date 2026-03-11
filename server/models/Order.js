@@ -6,6 +6,8 @@ const orderSchema = new mongoose.Schema({
     kwh: { type: Number, required: true },
     remainingKwh: { type: Number, required: true },
     price: { type: Number, required: true },
+    orderType: { type: String, enum: ['limit', 'market'], default: 'limit' },
+    isBrokerOrder: { type: Boolean, default: false },
     status: { type: String, enum: ['PENDING', 'PARTIAL', 'MATCHED', 'CANCELLED'], default: 'PENDING' }
 }, { timestamps: true });
 

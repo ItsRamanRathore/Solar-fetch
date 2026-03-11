@@ -13,6 +13,8 @@ import assetsRoutes from './routes/assets.js';
 import marketRoutes from './routes/market.js';
 import ledgerRoutes from './routes/ledger.js';
 import adminRoutes from './routes/admin.js';
+import { runArbitrageLogic } from './engines/ArbitrageEngine.js';
+import { detectFraudulentActivity } from './engines/FraudEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,9 +25,10 @@ const app = express();
 
 // ── Socket.IO + background simulation (local dev only) ──────────────
 // Vercel serverless cannot run persistent servers, WebSockets, or timers.
-const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+const isVercel = process.env.VERCEL === '1';
+const isProduction = process.env.NODE_ENV === 'production';
 
-if (!isProduction) {
+if (!isVercel) {
     const { createServer } = await import('http');
     const { Server } = await import('socket.io');
 
@@ -37,26 +40,72 @@ if (!isProduction) {
     app.set('io', io);
 
     // Background Simulation Loops
-    setInterval(() => {
-        io.emit('grid:pulse', {
-            generation: +(142.8 + (Math.random() * 0.4 - 0.2)).toFixed(1),
-            health: Math.min(100, Math.max(85, +(98 + (Math.random() > 0.8 ? (Math.random() * 2 - 1) : 0)).toFixed(0))),
-            activeTrades: Math.floor(Math.random() * 5 + 10)
-        });
+    setInterval(async () => {
+        let currentMode = 'standard';
+        try {
+            const GridState = (await import('./models/GridState.js')).default;
+            const state = await GridState.findOne().sort({ createdAt: -1 });
+            if (state) currentMode = state.simMode;
+        } catch (e) {}
+
+        let payload = {
+            generation: 0,
+            health: 98,
+            activeTrades: 0,
+            reason: 'NORMAL_OPERATION'
+        };
+
+        if (currentMode === 'grid-fail') {
+            payload = {
+                generation: +(120.5 + (Math.random() * 40 - 20)).toFixed(1), // Wild noise
+                health: Math.floor(Math.random() * 20 + 30), // 30-50% health
+                activeTrades: Math.floor(Math.random() * 3 + 2),
+                reason: 'GRID_INSTABILITY_DETECTED'
+            };
+        } else if (currentMode === 'sunset') {
+            payload = {
+                generation: +(20.5 + (Math.random() * 5)).toFixed(1), // Low yield
+                health: 95,
+                activeTrades: Math.floor(Math.random() * 8 + 15),
+                reason: 'LOW_SOLAR_REVENUE_DROP'
+            };
+        } else {
+            payload = {
+                generation: +(142.8 + (Math.random() * 0.4 - 0.2)).toFixed(1),
+                health: 100,
+                activeTrades: Math.floor(Math.random() * 5 + 10),
+                reason: 'OPTIMAL_SYNTAX'
+            };
+        }
+
+        io.emit('grid:pulse', payload);
 
         if (Math.random() > 0.7) {
             io.emit('neighbors:discovered', {
                 id: Date.now().toString(),
                 name: ['Node-99K', 'Node-33W', 'Node-85P', 'Node-41X'][Math.floor(Math.random() * 4)],
                 distance: ['150m', '300m', '550m', '900m'][Math.floor(Math.random() * 4)],
-                surplus: +(Math.random() * 5 + 1).toFixed(1),
-                price: +(Math.random() * 5 + 5).toFixed(2),
+                surplus: currentMode === 'sunset' ? 0.2 : +(Math.random() * 5 + 1).toFixed(1),
+                price: currentMode === 'grid-fail' ? 15.50 : +(Math.random() * 5 + 5).toFixed(2),
                 status: 'Discovered',
                 type: ['Prosumer', 'Consumer', 'Storage'][Math.floor(Math.random() * 3)],
                 trustScore: Math.floor(Math.random() * 30 + 70),
                 isCertified: Math.random() > 0.4
             });
         }
+
+        // Run Phase 2 Arbitrage Engine
+        await runArbitrageLogic(io);
+        
+        // Run Phase 2 Fraud Detection
+        await detectFraudulentActivity(io);
+
+        // Phase 2.5: Simulated Hardware Degradation
+        // Slightly decrease battery capacity for any active user to simulate wear
+        try {
+            const User = (await import('./models/User.js')).default;
+            await User.updateMany({ role: 'prosumer' }, { $mul: { batteryCapacity: 0.99995 } });
+        } catch (e) {}
     }, 3000);
 
     const PORT = process.env.PORT || 5000;
@@ -131,7 +180,13 @@ connectDB();
 // Middleware to ensure DB connection for Vercel serverless
 app.use('/api', async (req, res, next) => {
     try {
-        await connectDB();
+        const conn = await connectDB();
+        if (!conn && !isVercel) {
+            // Local dev: don't block if DB is down, just log
+            console.warn('Proceeding without MongoDB connection (Local Dev)');
+        } else if (!conn) {
+            return res.status(503).json({ error: 'Database connection failed' });
+        }
         next();
     } catch (err) {
         console.error('API DB connection wait failed:', err.message);

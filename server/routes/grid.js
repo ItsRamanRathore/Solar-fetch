@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
 // Update grid state (e.g., simMode)
 router.put('/', async (req, res) => {
     try {
-        const state = await GridState.findOneAndUpdate({}, req.body, { new: true, upsert: true, sort: { createdAt: -1 } });
+        const state = await GridState.findOneAndUpdate({}, req.body, { returnDocument: 'after', upsert: true, sort: { createdAt: -1 } });
         res.json(state);
     } catch (err) {
         res.status(500).json({ error: err.message });

@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, Table, Timeline } from 'antd';
+import { Card, Row, Col, Statistic, Table } from 'antd';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Zap, TrendingUp, Activity } from 'lucide-react';
+import { Zap, Activity, Battery, Award } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import GreenCertificate from '../GreenCertificate';
 
-const ProsumerDashboard: React.FC = () => {
+interface ProsumerDashboardProps {
+    simMode: string;
+    userRole: string;
+}
+
+const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
     // Generate mock yield data — initialized synchronously to avoid empty-data Recharts crash
     const [yieldData, setYieldData] = useState<any[]>(() =>
         Array.from({ length: 24 }).map((_, i) => ({
@@ -15,22 +21,26 @@ const ProsumerDashboard: React.FC = () => {
     );
 
     useEffect(() => {
-
         const interval = setInterval(() => {
             setYieldData(prev => {
                 const newData = [...prev];
                 const last = newData[newData.length - 1];
                 newData.shift();
+                
+                let genFactor = 1.0;
+                if (simMode === 'sunset') genFactor = 0.3; // 70% decrease
+                if (simMode === 'grid-fail') genFactor = 0.5 + Math.random(); // Wild noise factor
+                
                 newData.push({
                     time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-                    generation: last.generation + (Math.random() - 0.5),
+                    generation: (last.generation + (Math.random() - 0.5)) * genFactor,
                     consumption: last.consumption + (Math.random() - 0.5)
                 });
                 return newData;
             });
         }, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [simMode]);
 
     // Fetch user so we can filter ledger
     const { data: user } = useQuery({ queryKey: ['user'], queryFn: () => fetch('/api/auth/me').then(res => res.json()) });
@@ -51,6 +61,8 @@ const ProsumerDashboard: React.FC = () => {
     const currentGen = yieldData[yieldData.length - 1]?.generation || 0;
     const currentCons = yieldData[yieldData.length - 1]?.consumption || 0;
     const surplus = currentGen - currentCons;
+    const isIslanding = simMode === 'grid-fail';
+    const isBatteryMode = currentGen < currentCons || simMode !== 'standard';
 
     return (
         <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-8">
@@ -58,6 +70,19 @@ const ProsumerDashboard: React.FC = () => {
                 <div>
                     <h2 className="text-3xl font-black font-['Outfit'] uppercase tracking-tighter text-white m-0">Prosumer Studio</h2>
                     <p className="text-muted tracking-wide text-xs uppercase mt-1">Live Yield & Revenue Analytics</p>
+                </div>
+                
+                <div className="flex gap-4">
+                    {isIslanding && (
+                        <div className="px-4 py-2 rounded border border-red-500/50 bg-red-500/10 text-red-500 text-[10px] font-black uppercase tracking-widest animate-pulse">
+                            Micro-grid Islanding Active
+                        </div>
+                    )}
+                    {isBatteryMode && (
+                        <div className="px-4 py-2 rounded border border-yellow-500/50 bg-yellow-500/10 text-yellow-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                            <Battery size={12} className="animate-bounce" /> Battery Discharge Mode
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -115,25 +140,67 @@ const ProsumerDashboard: React.FC = () => {
                     </Card>
                 </Col>
 
-                {/* Global Consumption Feed */}
+                {/* VBM & Smart Broker Widget */}
                 <Col xs={24} lg={8}>
                     <Card className="glass-card h-full" bodyStyle={{ padding: '24px' }}>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 m-0 mb-6">
-                            <TrendingUp size={16} className="text-[#ffaa00]" /> Neighborhood Demand
-                        </h3>
-                        <div className="space-y-6">
-                            <div className="p-4 rounded-xl bg-[rgba(255,60,100,0.05)] border border-[rgba(255,60,100,0.1)]">
-                                <div className="text-[10px] font-black uppercase tracking-widest text-[#ff3b6a] mb-1">Peak Alert</div>
-                                <div className="text-sm font-bold text-white">Local transformer load is 15% above average. High demand expected in next hour.</div>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 m-0">
+                                <Battery size={16} className="text-[#00ff88]" /> Virtual Battery (VBM)
+                            </h3>
+                            <div className="px-2 py-0.5 rounded bg-[#00ff88]/10 border border-[#00ff88]/20 text-[#00ff88] text-[9px] font-black uppercase tracking-widest">
+                                Optimized
                             </div>
-                            <Timeline
-                                className="custom-timeline mt-4"
-                                items={[
-                                    { color: '#00ffe0', children: <span className="text-xs text-white">Grid load normal at 450kW</span> },
-                                    { color: '#ffaa00', children: <span className="text-xs text-white">12 EVs began charging (+84kW)</span> },
-                                    { color: '#ff3b6a', children: <span className="text-xs text-white">Demand spike: East Sector (+45kW)</span> },
-                                ]}
-                            />
+                        </div>
+
+                        <div className="flex flex-col items-center justify-center py-4">
+                            <div className="relative w-32 h-32 flex items-center justify-center">
+                                <div className="absolute inset-0 rounded-full border-4 border-white/5" />
+                                <div 
+                                    className="absolute inset-0 rounded-full border-4 border-[#00ff88] transition-all duration-1000"
+                                    style={{ 
+                                        clipPath: `inset(${100 - (user?.storedEnergy / user?.batteryCapacity * 100)}% 0 0 0)`,
+                                        filter: 'drop-shadow(0 0 8px #00ff88)' 
+                                    }}
+                                />
+                                <div className="text-center">
+                                    <div className="text-2xl font-black text-white leading-none">
+                                        {((user?.storedEnergy / user?.batteryCapacity) * 100).toFixed(0)}%
+                                    </div>
+                                    <div className="text-[10px] text-muted uppercase font-bold">Stored</div>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4 w-full mt-8">
+                                <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+                                    <div className="text-[9px] text-muted uppercase font-black mb-1">Capacity</div>
+                                    <div className="text-sm font-bold text-white">{user?.batteryCapacity} kWh</div>
+                                </div>
+                                <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+                                    <div className="text-[9px] text-muted uppercase font-black mb-1">State</div>
+                                    <div className="text-sm font-bold text-[#00ff88]">{simMode === 'sunset' ? 'Discharging' : 'Idle'}</div>
+                                </div>
+                            </div>
+
+                            <div className="w-full mt-6 p-4 rounded-2xl bg-cyan-400/5 border border-cyan-400/10 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${user?.isBrokerActive ? 'bg-cyan-400/20 animate-pulse' : 'bg-white/10'}`}>
+                                        <Activity size={16} className={user?.isBrokerActive ? 'text-cyan-400' : 'text-muted'} />
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-black text-white uppercase leading-none mb-1">AI Smart Broker</div>
+                                        <div className="text-[9px] text-muted uppercase tracking-tighter">Auto-Arbitrage Logic</div>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={async () => {
+                                        await fetch(`/api/assets/broker/toggle`, { method: 'POST' });
+                                        // Invalidate user query or use a mutation
+                                    }}
+                                    className={`w-12 h-6 rounded-full transition-all relative ${user?.isBrokerActive ? 'bg-cyan-400' : 'bg-white/10'}`}
+                                >
+                                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${user?.isBrokerActive ? 'left-7' : 'left-1'}`} />
+                                </button>
+                            </div>
                         </div>
                     </Card>
                 </Col>
@@ -176,12 +243,22 @@ const ProsumerDashboard: React.FC = () => {
                                 {
                                     title: 'PRICE',
                                     dataIndex: 'price',
-                                    render: (price) => <span className="text-xs text-muted font-mono">₹{(price ?? 0).toFixed(2)}/kWh</span>,
+                                    render: (price) => <span className="text-xs text-muted font-mono">₹{((price ?? 0) * (isIslanding ? 2.0 : 1.0)).toFixed(2)}/kWh</span>,
                                 },
                                 {
                                     title: 'REVENUE',
                                     dataIndex: 'settlementTotal',
-                                    render: (total) => <span className="text-sm font-black text-white font-['Outfit']">₹{(total ?? 0).toFixed(2)}</span>,
+                                    render: (total) => <span className="text-sm font-black text-white font-['Outfit']">₹{((total ?? 0) * (isIslanding ? 2.0 : 1.0)).toFixed(2)}</span>,
+                                },
+                                {
+                                    title: 'ESG HASH',
+                                    dataIndex: 'greenHash',
+                                    render: (hash) => hash ? (
+                                        <div className="flex items-center gap-1 text-cyan-400">
+                                            <Award size={12} />
+                                            <span className="text-[10px] font-mono">{hash.substring(0, 8)}</span>
+                                        </div>
+                                    ) : <span className="text-[10px] text-muted">-</span>,
                                 },
                                 {
                                     title: 'STATUS',
@@ -191,6 +268,13 @@ const ProsumerDashboard: React.FC = () => {
                             ]}
                         />
                     </Card>
+                    
+                    {/* Phase 2: ESG Certificate Preview */}
+                    <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {mySales.filter((tx: any) => tx.greenHash).slice(0, 3).map((tx: any) => (
+                            <GreenCertificate key={tx._id} tx={tx} />
+                        ))}
+                    </div>
                 </Col>
             </Row>
         </div>
