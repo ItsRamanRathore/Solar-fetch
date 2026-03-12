@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ConfigProvider, Layout, Select, Avatar } from 'antd';
+import { ConfigProvider, Layout, Select, Avatar, message } from 'antd';
 import { darkThemeConfig } from './theme/config';
 import Sidebar from './components/Sidebar';
 import LiveGrid from './components/views/LiveGrid';
@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import AuthModal from './components/AuthModal';
 import DirectiveTicker from './components/DirectiveTicker';
 import NotificationDrawer from './components/NotificationDrawer';
+import SettingsView from './components/views/SettingsView';
+import HelpView from './components/views/HelpView';
 import './index.css';
 
 const { Sider, Header, Content } = Layout;
@@ -67,6 +69,7 @@ const App: React.FC = () => {
 
   const handleSimModeChange = async (val: string) => {
     setSimMode(val);
+    message.loading({ content: `Shifted Grid to ${val.toUpperCase()} Protocol`, key: 'simShift', duration: 1 });
     try {
       await fetch('/api/grid', {
         method: 'PUT',
@@ -75,8 +78,10 @@ const App: React.FC = () => {
         credentials: 'include',
         signal: AbortSignal.timeout(10000),
       });
+      setTimeout(() => message.success({ content: `Grid Protocol: ${val.toUpperCase()} Synced`, key: 'simShift' }), 1000);
     } catch (err) {
       console.error('Failed to update simMode', err);
+      setTimeout(() => message.success({ content: `Grid Protocol: ${val.toUpperCase()} Applied (Local Only)`, key: 'simShift' }), 1000);
     }
   };
 
@@ -95,6 +100,12 @@ const App: React.FC = () => {
           break;
         case 'ledger':
           content = <LedgerView simMode={simMode} userRole={userRole} />;
+          break;
+        case 'settings':
+          content = <SettingsView />;
+          break;
+        case 'help':
+          content = <HelpView />;
           break;
         default:
           if (userRole === 'admin') content = <AdminDashboard {...dashboardProps} />;
@@ -123,6 +134,8 @@ const App: React.FC = () => {
       case 'dashboard': return `${userRole.charAt(0).toUpperCase() + userRole.slice(1)} Dashboard`;
       case 'live-grid': return 'Grid Overview';
       case 'ledger': return 'Audit Trail';
+      case 'settings': return 'System Settings';
+      case 'help': return 'Help Center';
       default: return 'Dashboard';
     }
   };
@@ -132,6 +145,8 @@ const App: React.FC = () => {
       case 'dashboard': return 'Command Center';
       case 'live-grid': return 'System Overview';
       case 'ledger': return 'Immutable Ledger';
+      case 'settings': return 'User Configuration';
+      case 'help': return 'Knowledge Base';
       default: return 'Command Center';
     }
   };

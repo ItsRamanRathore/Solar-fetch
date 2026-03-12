@@ -21,8 +21,16 @@ const SpatialMap: React.FC = () => {
 
     // Process nodes
     const nodes = useMemo(() => {
-        if (!users) return [];
-        return users.map((u: any) => ({
+        const mockUsers = [
+            { _id: 'm1', username: 'Node-Z8', role: 'prosumer', x: 150, y: 120, isCertified: true },
+            { _id: 'm2', username: 'Cluster-B', role: 'consumer', x: 450, y: 80, isCertified: false },
+            { _id: 'm3', username: 'Peer-44M', role: 'prosumer', x: 600, y: 280, isCertified: true },
+            { _id: 'm4', username: 'Green-Base', role: 'consumer', x: 200, y: 320, isCertified: false },
+            { _id: 'm5', username: 'Solar-Hub', role: 'prosumer', x: 400, y: 200, isCertified: true, isFlagged: true },
+        ];
+
+        const activeUsers = users && users.length > 0 ? users : mockUsers;
+        return activeUsers.map((u: any) => ({
             id: u._id,
             username: u.username,
             role: u.role || 'prosumer',
@@ -35,8 +43,14 @@ const SpatialMap: React.FC = () => {
 
     // Process flows
     const flows = useMemo(() => {
-        if (!transactions || !nodes.length) return [];
-        return transactions.slice(0, 5).map((tx: any) => {
+        const mockTransactions = [
+            { _id: 't1', from: 'Node-Z8', to: 'Cluster-B' },
+            { _id: 't2', from: 'Solar-Hub', to: 'Green-Base' },
+            { _id: 't3', from: 'Peer-44M', to: 'Solar-Hub' }
+        ];
+
+        const activeTx = transactions && transactions.length > 0 ? transactions : mockTransactions;
+        return activeTx.slice(0, 5).map((tx: any) => {
             const fromNode = nodes.find((n: any) => n.username === tx.from);
             const toNode = nodes.find((n: any) => n.username === tx.to);
             if (fromNode && toNode) {

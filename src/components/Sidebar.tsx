@@ -57,7 +57,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelect, activeKey, role }) => {
                 <Menu
                     mode="inline"
                     className="border-none"
-                    selectable={false}
+                    selectedKeys={[activeKey]}
+                    onClick={({ key }) => onSelect(key)}
                     items={[
                         { key: 'settings', icon: <Settings size={18} />, label: 'Settings' },
                         { key: 'help', icon: <HelpCircle size={18} />, label: 'Help & Support' },

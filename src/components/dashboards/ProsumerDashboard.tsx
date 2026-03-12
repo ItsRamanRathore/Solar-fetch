@@ -1,22 +1,46 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, Table } from 'antd';
+import { Card, Row, Col, Statistic, Table, Button, message } from 'antd';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Zap, Activity, Battery, Award } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { Zap, Activity, Battery, Award, Settings, HelpCircle } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import GreenCertificate from '../GreenCertificate';
+import { useSettings } from '../../contexts/SettingsContext';
 
 interface ProsumerDashboardProps {
     simMode: string;
     userRole: string;
+    user?: {
+        username: string;
+        storedEnergy: number;
+        batteryCapacity: number;
+        isBrokerActive: boolean;
+    };
 }
 
-const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
+const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) => {
+    const { settings } = useSettings();
+    const queryClient = useQueryClient();
+    const [brokerOverride, setBrokerOverride] = useState<boolean | null>(null);
+
+    // Mock AI Activity Simulator
+    useEffect(() => {
+        if (brokerOverride === true || (user?.isBrokerActive && brokerOverride !== false)) {
+            const interval = setInterval(() => {
+                if (Math.random() > 0.7) {
+                    message.info('AI Broker: Optimal trade path identified. Executing match...', 3);
+                }
+            }, 10000);
+            return () => clearInterval(interval);
+        }
+    }, [brokerOverride, user?.isBrokerActive]);
+
     // Generate mock yield data — initialized synchronously to avoid empty-data Recharts crash
     const [yieldData, setYieldData] = useState<any[]>(() =>
         Array.from({ length: 24 }).map((_, i) => ({
             time: `${i}:00`,
-            generation: Math.max(0, 15 - Math.pow(i - 12, 2) * 0.3 + Math.random() * 2),
-            consumption: 3 + Math.random() * 5 + (i > 17 ? 4 : 0),
+            // BOOSTED for demo: peak at ~40kW, nightly floor at 15kW
+            generation: Math.max(15, 30 - Math.pow(i - 12, 2) * 0.4 + Math.random() * 5),
+            consumption: 2 + Math.random() * 3 + (i > 18 ? 4 : 0),
         }))
     );
 
@@ -33,8 +57,9 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
                 
                 newData.push({
                     time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-                    generation: (last.generation + (Math.random() - 0.5)) * genFactor,
-                    consumption: last.consumption + (Math.random() - 0.5)
+                    // Force generation to be significantly higher than consumption for demo
+                    generation: Math.max(15, last.generation + (Math.random() - 0.2)) * genFactor,
+                    consumption: Math.min(10, Math.max(2, last.consumption + (Math.random() - 0.5)))
                 });
                 return newData;
             });
@@ -43,7 +68,11 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
     }, [simMode]);
 
     // Fetch user so we can filter ledger
-    const { data: user } = useQuery({ queryKey: ['user'], queryFn: () => fetch('/api/auth/me').then(res => res.json()) });
+    const { data: fetchedUser } = useQuery({ queryKey: ['user'], queryFn: () => fetch('/api/auth/me').then(res => res.json()) });
+    const currentUser = { 
+        ...(user || fetchedUser), 
+        isBrokerActive: brokerOverride !== null ? brokerOverride : (user?.isBrokerActive || fetchedUser?.isBrokerActive) 
+    }; 
 
     // Fetch ledger
     const { data: transactions, isLoading } = useQuery({
@@ -56,7 +85,16 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
         refetchInterval: 5000,
     });
 
-    const mySales = transactions?.filter((tx: any) => tx.from === user?.username) || [];
+    // Demo Masking & Rich Mock Data
+    const mockRevenue = [
+        { _id: 'm1', from: currentUser?.username, to: 'Node-Z8', amount: 45.2, price: 12.5, settlementTotal: 565, createdAt: new Date(Date.now() - 3600000).toISOString(), status: 'Settled', greenHash: '0x8f7d2e...' },
+        { _id: 'm2', from: currentUser?.username, to: 'Cluster-B', amount: 120.5, price: 14.2, settlementTotal: 1711.1, createdAt: new Date(Date.now() - 7200000).toISOString(), status: 'Settled', greenHash: '0xac32b1...' },
+        { _id: 'm3', from: currentUser?.username, to: 'Node-C4', amount: 12.8, price: 11.8, settlementTotal: 151.04, createdAt: new Date(Date.now() - 86400000).toISOString(), status: 'Settled', greenHash: '0x9d4a8c...' }
+    ];
+
+    const mySales = transactions && transactions.length > 0 
+        ? [...mockRevenue, ...transactions.filter((tx: any) => tx.from === currentUser?.username)]
+        : mockRevenue;
 
     const currentGen = yieldData[yieldData.length - 1]?.generation || 0;
     const currentCons = yieldData[yieldData.length - 1]?.consumption || 0;
@@ -83,6 +121,10 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
                             <Battery size={12} className="animate-bounce" /> Battery Discharge Mode
                         </div>
                     )}
+                    <div className="flex items-center gap-2 ml-2">
+                        <Button className="glass-button !p-2" icon={<Settings size={14} />} />
+                        <Button className="glass-button !p-2" icon={<HelpCircle size={14} />} />
+                    </div>
                 </div>
             </div>
 
@@ -158,13 +200,13 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
                                 <div 
                                     className="absolute inset-0 rounded-full border-4 border-[#00ff88] transition-all duration-1000"
                                     style={{ 
-                                        clipPath: `inset(${100 - (user?.storedEnergy / user?.batteryCapacity * 100)}% 0 0 0)`,
+                                        clipPath: `inset(${100 - (currentUser?.storedEnergy / currentUser?.batteryCapacity * 100)}% 0 0 0)`,
                                         filter: 'drop-shadow(0 0 8px #00ff88)' 
                                     }}
                                 />
                                 <div className="text-center">
                                     <div className="text-2xl font-black text-white leading-none">
-                                        {((user?.storedEnergy / user?.batteryCapacity) * 100).toFixed(0)}%
+                                        {((currentUser?.storedEnergy / currentUser?.batteryCapacity) * 100).toFixed(0)}%
                                     </div>
                                     <div className="text-[10px] text-muted uppercase font-bold">Stored</div>
                                 </div>
@@ -173,7 +215,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
                             <div className="grid grid-cols-2 gap-4 w-full mt-8">
                                 <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
                                     <div className="text-[9px] text-muted uppercase font-black mb-1">Capacity</div>
-                                    <div className="text-sm font-bold text-white">{user?.batteryCapacity} kWh</div>
+                                    <div className="text-sm font-bold text-white">{currentUser?.batteryCapacity} kWh</div>
                                 </div>
                                 <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
                                     <div className="text-[9px] text-muted uppercase font-black mb-1">State</div>
@@ -183,8 +225,8 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
 
                             <div className="w-full mt-6 p-4 rounded-2xl bg-cyan-400/5 border border-cyan-400/10 flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${user?.isBrokerActive ? 'bg-cyan-400/20 animate-pulse' : 'bg-white/10'}`}>
-                                        <Activity size={16} className={user?.isBrokerActive ? 'text-cyan-400' : 'text-muted'} />
+                                    <div className={`p-2 rounded-lg ${currentUser?.isBrokerActive ? 'bg-cyan-400/20 animate-pulse' : 'bg-white/10'}`}>
+                                        <Activity size={16} className={currentUser?.isBrokerActive ? 'text-cyan-400' : 'text-muted'} />
                                     </div>
                                     <div>
                                         <div className="text-xs font-black text-white uppercase leading-none mb-1">AI Smart Broker</div>
@@ -193,12 +235,18 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
                                 </div>
                                 <button 
                                     onClick={async () => {
-                                        await fetch(`/api/assets/broker/toggle`, { method: 'POST' });
-                                        // Invalidate user query or use a mutation
+                                        setBrokerOverride(!currentUser.isBrokerActive);
+                                        message.success(`AI Broker ${!currentUser.isBrokerActive ? 'Enabled' : 'Disabled'}`);
+                                        try {
+                                            await fetch(`/api/assets/broker/toggle`, { method: 'POST' });
+                                            queryClient.invalidateQueries({ queryKey: ['user'] });
+                                        } catch (e) {
+                                            console.warn('Backend disconnected, using local simulation');
+                                        }
                                     }}
-                                    className={`w-12 h-6 rounded-full transition-all relative ${user?.isBrokerActive ? 'bg-cyan-400' : 'bg-white/10'}`}
+                                    className={`w-12 h-6 rounded-full transition-all relative ${currentUser?.isBrokerActive ? 'bg-cyan-400' : 'bg-white/10'}`}
                                 >
-                                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${user?.isBrokerActive ? 'left-7' : 'left-1'}`} />
+                                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${currentUser?.isBrokerActive ? 'left-7' : 'left-1'}`} />
                                 </button>
                             </div>
                         </div>
@@ -243,18 +291,24 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ simMode }) => {
                                 {
                                     title: 'PRICE',
                                     dataIndex: 'price',
-                                    render: (price) => <span className="text-xs text-muted font-mono">₹{((price ?? 0) * (isIslanding ? 2.0 : 1.0)).toFixed(2)}/kWh</span>,
+                                    render: (price) => <span className="text-xs text-muted font-mono">{settings.currency}{((price ?? 0) * (isIslanding ? 2.0 : 1.0)).toFixed(2)}/kWh</span>,
                                 },
                                 {
                                     title: 'REVENUE',
                                     dataIndex: 'settlementTotal',
-                                    render: (total) => <span className="text-sm font-black text-white font-['Outfit']">₹{((total ?? 0) * (isIslanding ? 2.0 : 1.0)).toFixed(2)}</span>,
+                                    render: (total) => <span className="text-sm font-black text-white font-['Outfit']">{settings.currency}{((total ?? 0) * (isIslanding ? 2.0 : 1.0)).toFixed(2)}</span>,
                                 },
                                 {
                                     title: 'ESG HASH',
                                     dataIndex: 'greenHash',
                                     render: (hash) => hash ? (
                                         <div className="flex items-center gap-1 text-cyan-400">
+                                            <Statistic 
+                                                title={<span className="text-[10px] text-muted font-bold uppercase tracking-widest">Total Yield Revenue</span>} 
+                                                value={2458.50} 
+                                                prefix={<span className="text-cyan-400">{settings.currency}</span>}
+                                                valueStyle={{ color: '#fff', fontSize: '24px', fontWeight: '900', fontFamily: 'Outfit' }} 
+                                            />
                                             <Award size={12} />
                                             <span className="text-[10px] font-mono">{hash.substring(0, 8)}</span>
                                         </div>

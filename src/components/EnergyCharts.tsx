@@ -2,8 +2,10 @@ import React from 'react';
 import { Card, Row, Col, Progress, Switch, Tooltip } from 'antd';
 import { DualAxes } from '@ant-design/plots';
 import { Battery, Zap, Info, ShieldCheck } from 'lucide-react';
+import { useSettings } from '../contexts/SettingsContext';
 
 const EnergyCharts: React.FC = () => {
+    const { settings } = useSettings();
     const data = [
         { time: '00:00', value: 2.1, type: 'Consumption' },
         { time: '04:00', value: 1.8, type: 'Consumption' },
@@ -111,8 +113,8 @@ const EnergyCharts: React.FC = () => {
                                 <span className="text-white">Active</span>
                             </div>
                             <div className="text-[10px] font-medium text-slate-300">
-                                Buy: &lt; $0.09/kWh<br />
-                                Sell: &gt; $0.14/kWh
+                                Buy: &lt; {settings.currency}0.09/kWh<br />
+                                Sell: &gt; {settings.currency}0.14/kWh
                             </div>
                         </div>
                         <div className="text-[9px] mt-2 text-[#00e5ff] font-bold uppercase tracking-tighter animate-pulse">

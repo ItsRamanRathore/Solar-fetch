@@ -3,6 +3,7 @@ import { Card, Badge } from 'antd';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../contexts/SocketContext';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface LiveBid {
     id: string;
@@ -13,11 +14,36 @@ interface LiveBid {
 }
 
 const LiveBidding: React.FC = () => {
-    const [bids, setBids] = useState<LiveBid[]>([]);
+    const { settings } = useSettings();
+    const [bids, setBids] = useState<LiveBid[]>([
+        { id: 'b1', type: 'Bid', price: 12.5, volume: 45.0, time: '23:55' },
+        { id: 'b2', type: 'Ask', price: 14.2, volume: 120.0, time: '23:56' },
+        { id: 'b3', type: 'Match', price: 13.1, volume: 15.5, time: '23:58' },
+        { id: 'b4', type: 'Bid', price: 12.8, volume: 22.4, time: '00:01' },
+        { id: 'b5', type: 'Ask', price: 15.0, volume: 88.2, time: '00:03' },
+    ]);
     const { socket } = useSocket();
 
     useEffect(() => {
-        if (!socket) return;
+        // Fallback simulation for Demo if socket is disconnected
+        const demoInterval = setInterval(() => {
+            if (!socket?.connected) {
+                const types: ('Bid' | 'Ask' | 'Match')[] = ['Bid', 'Ask', 'Match'];
+                const type = types[Math.floor(Math.random() * types.length)];
+                setBids(prev => [
+                    {
+                        id: Math.random().toString(36).substring(7),
+                        type,
+                        price: 10 + Math.random() * 5,
+                        volume: 10 + Math.random() * 100,
+                        time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+                    },
+                    ...prev
+                ].slice(0, 10));
+            }
+        }, 8000);
+
+        if (!socket) return () => clearInterval(demoInterval);
 
         const handleNewOrder = (data: any) => {
             const nextType = data.type as 'Bid' | 'Ask' | 'Match';
@@ -85,7 +111,7 @@ const LiveBidding: React.FC = () => {
                                     </div>
                                     <div className="py-1 flex flex-col items-start gap-1">
                                         <div className={`text-sm font-bold leading-none ${bid.type === 'Ask' ? 'text-red-400' : bid.type === 'Bid' ? 'neon-text-green' : 'text-cyan-400'}`}>
-                                            ₹{bid.price.toFixed(2)}
+                                            {settings.currency}{bid.price.toFixed(2)}
                                         </div>
                                         <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded leading-none ${bid.type === 'Bid' ? 'bg-[#00e5ff]/10 text-[#00e5ff]' : bid.type === 'Ask' ? 'bg-[#ff3366]/10 text-[#ff3366]' : 'bg-[#00ff88]/10 text-[#00ff88]'}`}>
                                             {bid.type}
@@ -105,7 +131,7 @@ const LiveBidding: React.FC = () => {
             <div className="mt-auto p-4 bg-[rgba(15,23,42,0.6)] border-t border-white/5 rounded-b-3xl">
                 <div className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5 shadow-inner">
                     <div className="text-[10px] text-muted font-bold uppercase tracking-wider">Spread</div>
-                    <div className="text-sm neon-text-cyan font-bold font-mono">0.02 USD/kWh</div>
+                    <div className="text-sm neon-text-cyan font-bold font-mono">0.02 {settings.currency}/kWh</div>
                 </div>
             </div>
         </Card>

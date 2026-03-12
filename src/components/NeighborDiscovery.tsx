@@ -17,11 +17,34 @@ interface Neighbor {
 }
 
 const NeighborDiscovery: React.FC = () => {
-    const [neighbors, setNeighbors] = useState<Neighbor[]>([]);
+    const [neighbors, setNeighbors] = useState<Neighbor[]>([
+        { id: 'n1', name: 'BLOCK-7', distance: '150m', surplus: 12.4, price: 10.5, status: 'active', type: 'Prosumer', trustScore: 98, isCertified: true },
+        { id: 'n2', name: 'PEER-X2', distance: '420m', surplus: 3.2, price: 12.8, status: 'standby', type: 'Consumer', trustScore: 85, isCertified: false },
+        { id: 'n3', name: 'NODE-09', distance: '800m', surplus: 45.0, price: 11.2, status: 'active', type: 'Prosumer', trustScore: 92, isCertified: true },
+    ]);
     const { socket } = useSocket();
 
     useEffect(() => {
-        if (!socket) return;
+        // Mock Discovery Simulator for Demo
+        const discoveryInterval = setInterval(() => {
+            if (!socket?.connected) {
+                const names = ['ALPHA-4', 'BETA-9', 'GAMMA-1', 'DELTA-6'];
+                const newNeighbor: Neighbor = {
+                    id: Math.random().toString(36).substring(7),
+                    name: names[Math.floor(Math.random() * names.length)],
+                    distance: `${Math.floor(Math.random() * 900 + 100)}m`,
+                    surplus: Number((Math.random() * 20).toFixed(1)),
+                    price: Number((10 + Math.random() * 5).toFixed(2)),
+                    status: 'active',
+                    type: Math.random() > 0.5 ? 'Prosumer' : 'Consumer',
+                    trustScore: Math.floor(Math.random() * 20 + 80),
+                    isCertified: Math.random() > 0.7
+                };
+                setNeighbors(prev => [newNeighbor, ...prev].slice(0, 8));
+            }
+        }, 12000);
+
+        if (!socket) return () => clearInterval(discoveryInterval);
 
         const handleDiscovery = (data: Neighbor) => {
             setNeighbors(prev => [data, ...prev].slice(0, 8)); // Keep only the latest 8 discoveries
@@ -74,7 +97,11 @@ const NeighborDiscovery: React.FC = () => {
                                 <div className="text-[10px] text-muted font-bold uppercase tracking-widest leading-none">Yield</div>
                                 <div className="text-sm font-black text-white">{item.surplus} kWh</div>
                             </div>
-                            <Button type="text" className="text-muted group-hover:text-[#00ff88] p-1">
+                            <Button 
+                                type="text" 
+                                className="text-muted group-hover:text-[#00ff88] p-1"
+                                onClick={() => message.success(`Encrypted Bridge Established with ${item.name}`)}
+                            >
                                 <ArrowRight size={18} />
                             </Button>
                         </div>
