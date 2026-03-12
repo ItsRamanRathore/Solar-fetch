@@ -1,41 +1,58 @@
 import React from 'react';
 import { Card, Row, Col, Progress, Switch, Tooltip } from 'antd';
 import { DualAxes } from '@ant-design/plots';
+import { useQuery } from '@tanstack/react-query';
 import { Battery, Zap, Info, ShieldCheck } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 
 const EnergyCharts: React.FC = () => {
     const { settings } = useSettings();
-    const data = [
-        { time: '00:00', value: 2.1, type: 'Consumption' },
-        { time: '04:00', value: 1.8, type: 'Consumption' },
-        { time: '08:00', value: 3.5, type: 'Consumption' },
-        { time: '12:00', value: 4.8, type: 'Consumption' },
-        { time: '16:00', value: 4.2, type: 'Consumption' },
-        { time: '20:00', value: 3.2, type: 'Consumption' },
-        { time: '00:00', value: 0.1, type: 'Production' },
-        { time: '04:00', value: 0.2, type: 'Production' },
-        { time: '08:00', value: 2.8, type: 'Production' },
-        { time: '12:00', value: 6.5, type: 'Production' },
-        { time: '16:00', value: 5.1, type: 'Production' },
-        { time: '20:00', value: 1.2, type: 'Production' },
-    ];
 
-    const consumptionData = data.filter(d => d.type === 'Consumption');
+    const { data: usageHistory } = useQuery({
+        queryKey: ['gridUsageHistory'],
+        queryFn: async () => {
+            const res = await fetch('/api/grid/usage');
+            if (!res.ok) throw new Error('Failed to fetch grid usage');
+            const raw = await res.json();
+            
+            // Transform for AreaChart
+            const formatted: any[] = [];
+            raw.forEach((d: any) => {
+                const time = new Date(d.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                formatted.push({ time, value: d.consumption, type: 'Today' });
+                formatted.push({ time, value: d.generation, type: 'Production' });
+            });
+            return formatted;
+        },
+        refetchInterval: 30000
+    });
+
+    const data = usageHistory || [];
+    const todayData = data.filter(d => d.type === 'Today');
     const productionData = data.filter(d => d.type === 'Production');
+    const yesterdayData: any[] = []; // Optional: keep as empty for now or fetch yesterday's
 
     const config = {
         xField: 'time',
         children: [
             {
-                data: consumptionData,
+                data: todayData,
                 type: 'area',
                 yField: 'value',
                 seriesField: 'type',
                 colorField: 'type',
                 scale: { color: { range: ['#00e5ff'] } },
-                style: { fillOpacity: 0.3 },
+                style: { fillOpacity: 0.4 },
                 axis: { y: { label: { style: { fill: '#475569' } }, grid: { line: { style: { stroke: 'rgba(255,255,255,0.05)' } } } } }
+            },
+            {
+                data: yesterdayData,
+                type: 'line',
+                yField: 'value',
+                seriesField: 'type',
+                colorField: 'type',
+                scale: { color: { range: ['rgba(255,255,255,0.2)'] } },
+                style: { lineDash: [4, 4], lineWidth: 1 },
             },
             {
                 data: productionData,
@@ -44,7 +61,7 @@ const EnergyCharts: React.FC = () => {
                 seriesField: 'type',
                 colorField: 'type',
                 scale: { color: { range: ['#00ff88'] } },
-                style: { lineWidth: 2 },
+                style: { lineWidth: 2, shadowColor: 'rgba(0,255,136,0.3)', shadowBlur: 10 },
                 axis: { y: { position: 'right', label: { style: { fill: '#475569' } } } }
             },
         ],

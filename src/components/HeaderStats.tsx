@@ -1,30 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Row, Col, Statistic, Card } from 'antd';
 import { Zap, Activity, Users, TrendingUp, Wifi } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useSocket } from '../contexts/SocketContext';
 
 const HeaderStats: React.FC = () => {
-    const [gen, setGen] = useState(142.8);
-    const [trades, setTrades] = useState(12);
-    const [health, setHealth] = useState(98);
+    const { connected } = useSocket();
 
-    const { socket, connected } = useSocket();
+    const { data: stats } = useQuery({
+        queryKey: ['gridStats'],
+        queryFn: async () => {
+            const res = await fetch('/api/grid/stats');
+            if (!res.ok) throw new Error('Failed to fetch grid stats');
+            return res.json();
+        },
+        refetchInterval: 5000
+    });
 
-    useEffect(() => {
-        if (!socket) return;
-
-        const handlePulse = (data: any) => {
-            setGen(data.generation);
-            setHealth(data.health);
-            setTrades(data.activeTrades);
-        };
-
-        socket.on('grid:pulse', handlePulse);
-
-        return () => {
-            socket.off('grid:pulse', handlePulse);
-        };
-    }, [socket]);
+    const gen = stats?.generation || 0;
+    const trades = stats?.activeTrades || 0;
+    const health = stats?.health || 99.8;
 
     return (
         <Row gutter={[16, 16]} className="mb-6">

@@ -1,53 +1,38 @@
-import React, { useState, useEffect } from 'react';
-import { Card, List, Tag, Button } from 'antd';
+import React, { useEffect } from 'react';
+import { Card, List, Tag, Button, message } from 'antd';
 import { MapPin, User, ArrowRight, Star, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 import { useSocket } from '../contexts/SocketContext';
 
-interface Neighbor {
-    id: string;
-    name: string;
-    distance: string;
-    surplus: number;
-    price: number;
-    status: string;
-    type: string;
-    trustScore: number;
-    isCertified: boolean;
-}
-
 const NeighborDiscovery: React.FC = () => {
-    const [neighbors, setNeighbors] = useState<Neighbor[]>([
-        { id: 'n1', name: 'BLOCK-7', distance: '150m', surplus: 12.4, price: 10.5, status: 'active', type: 'Prosumer', trustScore: 98, isCertified: true },
-        { id: 'n2', name: 'PEER-X2', distance: '420m', surplus: 3.2, price: 12.8, status: 'standby', type: 'Consumer', trustScore: 85, isCertified: false },
-        { id: 'n3', name: 'NODE-09', distance: '800m', surplus: 45.0, price: 11.2, status: 'active', type: 'Prosumer', trustScore: 92, isCertified: true },
-    ]);
+
+    const { data: neighborsList } = useQuery({
+        queryKey: ['neighbors:discovery'],
+        queryFn: () => fetch('/api/users/prosumers').then(res => res.json()),
+        refetchInterval: 10000
+    });
+
+    const neighbors = (neighborsList || []).map((u: any) => ({
+        id: u._id,
+        name: u.username,
+        distance: `${Math.floor(Math.random() * 400 + 100)}m`, // Simulated distance
+        surplus: u.credits > 100 ? (u.credits / 10).toFixed(1) : 0,
+        price: 11.5, // Baseline neighborhood price
+        status: 'active',
+        type: u.role === 'prosumer' ? 'Prosumer' : 'Consumer',
+        trustScore: u.trustScore || 90,
+        isCertified: u.isCertified
+    }));
+
     const { socket } = useSocket();
 
     useEffect(() => {
-        // Mock Discovery Simulator for Demo
-        const discoveryInterval = setInterval(() => {
-            if (!socket?.connected) {
-                const names = ['ALPHA-4', 'BETA-9', 'GAMMA-1', 'DELTA-6'];
-                const newNeighbor: Neighbor = {
-                    id: Math.random().toString(36).substring(7),
-                    name: names[Math.floor(Math.random() * names.length)],
-                    distance: `${Math.floor(Math.random() * 900 + 100)}m`,
-                    surplus: Number((Math.random() * 20).toFixed(1)),
-                    price: Number((10 + Math.random() * 5).toFixed(2)),
-                    status: 'active',
-                    type: Math.random() > 0.5 ? 'Prosumer' : 'Consumer',
-                    trustScore: Math.floor(Math.random() * 20 + 80),
-                    isCertified: Math.random() > 0.7
-                };
-                setNeighbors(prev => [newNeighbor, ...prev].slice(0, 8));
-            }
-        }, 12000);
+        if (!socket) return;
 
-        if (!socket) return () => clearInterval(discoveryInterval);
-
-        const handleDiscovery = (data: Neighbor) => {
-            setNeighbors(prev => [data, ...prev].slice(0, 8)); // Keep only the latest 8 discoveries
+        const handleDiscovery = () => {
+             // We can trigger an invalidation if we want live discovery feedback via sockets
+             // queryClient.invalidateQueries(['neighbors:discovery'])
         };
 
         socket.on('neighbors:discovered', handleDiscovery);
@@ -69,7 +54,7 @@ const NeighborDiscovery: React.FC = () => {
 
             <List
                 dataSource={neighbors}
-                renderItem={(item) => (
+                renderItem={(item: any) => (
                     <motion.div
                         layout
                         initial={{ opacity: 0, x: -20 }}

@@ -18,19 +18,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
 
     const { settings } = useSettings();
 
-    // Mock Data for Demo
-    const mockUsers = [
-        { _id: 'u1', username: 'Crypto_Solar_7', role: 'PROSUMER', status: 'pending', createdAt: new Date().toISOString() },
-        { _id: 'u2', username: 'Green_Node_Alpha', role: 'PROSUMER', status: 'pending', createdAt: new Date().toISOString() },
-        { _id: 'u3', username: 'IoT_Grid_Master', role: 'ADMIN', status: 'approved', createdAt: new Date().toISOString() }
-    ];
-
-    const mockGov = {
-        priceCap: 15.5,
-        floorPrice: 10.2,
-        isTradingPaused: false
-    };
-
     // Fetch Pending Users
     const { data: users, isLoading: loadingUsers } = useQuery({
         queryKey: ['adminUsers'],
@@ -42,7 +29,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
         refetchInterval: 5000
     });
 
-    const displayUsers = users && users.length > 0 ? users : mockUsers;
+    // Fetch aggregate stats
+    const { data: stats } = useQuery({
+        queryKey: ['userStats'],
+        queryFn: async () => {
+            const res = await fetch('/api/users/stats');
+            if (!res.ok) throw new Error('Failed to fetch stats');
+            return res.json();
+        },
+        refetchInterval: 5000,
+    });
+
+    const displayUsers = users || [];
 
     // Fetch Governance
     const { data: govFetch } = useQuery({
@@ -54,7 +52,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
         }
     });
 
-    const gov = govFetch || mockGov;
+    const gov = govFetch || { priceCap: 0, floorPrice: 0, isTradingPaused: false };
 
     // Mutations
     const approveUser = useMutation({
@@ -146,7 +144,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
                                 <div className={`text-xl font-black uppercase tracking-widest ${isGridFail ? 'text-orange-500' : 'text-white'}`}>
                                     {isGridFail ? 'Direct Protocol Orange' : gov?.isTradingPaused ? 'Trading Suspended' : 'Stable Ops: 98%'}
                                 </div>
-                                <div className="text-[10px] text-muted uppercase mt-2 w-64">
+                                <div className="grid grid-cols-3 gap-2 mt-4 w-full">
+                                    <div className="p-2 rounded bg-white/5 border border-white/10">
+                                        <div className="text-[8px] text-muted uppercase font-black">Prosumers</div>
+                                        <div className="text-sm font-bold text-cyan-400">{stats?.prosumers || 0}</div>
+                                    </div>
+                                    <div className="p-2 rounded bg-white/5 border border-white/10">
+                                        <div className="text-[8px] text-muted uppercase font-black">Consumers</div>
+                                        <div className="text-sm font-bold text-[#00ff88]">{stats?.consumers || 0}</div>
+                                    </div>
+                                    <div className="p-2 rounded bg-white/5 border border-white/10">
+                                        <div className="text-[8px] text-muted uppercase font-black">Network</div>
+                                        <div className="text-sm font-bold text-white">{stats?.totalUsers || 0}</div>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] text-muted uppercase mt-4 w-64 mx-auto">
                                     {isGridFail
                                         ? "CRITICAL: Manual energy transfer verification required for critical nodes (Medical/Security)."
                                         : isSunset

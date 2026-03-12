@@ -16,7 +16,8 @@ const userSchema = new mongoose.Schema({
     storedEnergy: { type: Number, default: 10.0 },   // Current Storage in kWh
     isBrokerActive: { type: Boolean, default: false },
     pufIdentity: { type: String, unique: true, sparse: true }, // Hardware Hardware verification
-    creditRank: { type: String, enum: ['standard', 'premium', 'governor'], default: 'standard' }
+    creditRank: { type: String, enum: ['standard', 'premium', 'governor'], default: 'standard' },
+    connectedProsumer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);

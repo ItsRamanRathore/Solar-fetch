@@ -34,38 +34,23 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
         }
     }, [brokerOverride, user?.isBrokerActive]);
 
-    // Generate mock yield data — initialized synchronously to avoid empty-data Recharts crash
-    const [yieldData, setYieldData] = useState<any[]>(() =>
-        Array.from({ length: 24 }).map((_, i) => ({
-            time: `${i}:00`,
-            // BOOSTED for demo: peak at ~40kW, nightly floor at 15kW
-            generation: Math.max(15, 30 - Math.pow(i - 12, 2) * 0.4 + Math.random() * 5),
-            consumption: 2 + Math.random() * 3 + (i > 18 ? 4 : 0),
-        }))
-    );
+    // Fetch live yield data from API
+    const { data: usageHistory } = useQuery({
+        queryKey: ['yieldHistory'],
+        queryFn: async () => {
+            const res = await fetch('/api/users/usage?limit=24');
+            if (!res.ok) throw new Error('Failed to fetch usage history');
+            const data = await res.json();
+            return data.map((d: any) => ({
+                time: new Date(d.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+                generation: d.generation,
+                consumption: d.consumption
+            }));
+        },
+        refetchInterval: 30000,
+    });
 
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setYieldData(prev => {
-                const newData = [...prev];
-                const last = newData[newData.length - 1];
-                newData.shift();
-                
-                let genFactor = 1.0;
-                if (simMode === 'sunset') genFactor = 0.3; // 70% decrease
-                if (simMode === 'grid-fail') genFactor = 0.5 + Math.random(); // Wild noise factor
-                
-                newData.push({
-                    time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-                    // Force generation to be significantly higher than consumption for demo
-                    generation: Math.max(15, last.generation + (Math.random() - 0.2)) * genFactor,
-                    consumption: Math.min(10, Math.max(2, last.consumption + (Math.random() - 0.5)))
-                });
-                return newData;
-            });
-        }, 5000);
-        return () => clearInterval(interval);
-    }, [simMode]);
+    const yieldData = usageHistory || [];
 
     // Fetch user so we can filter ledger
     const { data: fetchedUser } = useQuery({ queryKey: ['user'], queryFn: () => fetch('/api/auth/me').then(res => res.json()) });
@@ -73,6 +58,17 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
         ...(user || fetchedUser), 
         isBrokerActive: brokerOverride !== null ? brokerOverride : (user?.isBrokerActive || fetchedUser?.isBrokerActive) 
     }; 
+
+    // Fetch aggregate stats
+    const { data: stats } = useQuery({
+        queryKey: ['userStats'],
+        queryFn: async () => {
+            const res = await fetch('/api/users/stats');
+            if (!res.ok) throw new Error('Failed to fetch stats');
+            return res.json();
+        },
+        refetchInterval: 5000,
+    });
 
     // Fetch ledger
     const { data: transactions, isLoading } = useQuery({
@@ -85,20 +81,16 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
         refetchInterval: 5000,
     });
 
-    // Demo Masking & Rich Mock Data
-    const mockRevenue = [
-        { _id: 'm1', from: currentUser?.username, to: 'Node-Z8', amount: 45.2, price: 12.5, settlementTotal: 565, createdAt: new Date(Date.now() - 3600000).toISOString(), status: 'Settled', greenHash: '0x8f7d2e...' },
-        { _id: 'm2', from: currentUser?.username, to: 'Cluster-B', amount: 120.5, price: 14.2, settlementTotal: 1711.1, createdAt: new Date(Date.now() - 7200000).toISOString(), status: 'Settled', greenHash: '0xac32b1...' },
-        { _id: 'm3', from: currentUser?.username, to: 'Node-C4', amount: 12.8, price: 11.8, settlementTotal: 151.04, createdAt: new Date(Date.now() - 86400000).toISOString(), status: 'Settled', greenHash: '0x9d4a8c...' }
-    ];
-
-    const mySales = transactions && transactions.length > 0 
-        ? [...mockRevenue, ...transactions.filter((tx: any) => tx.from === currentUser?.username)]
-        : mockRevenue;
+    const mySales = transactions && transactions.length > 0 && currentUser
+        ? transactions.filter((tx: any) => 
+            tx.from === currentUser.username || 
+            tx.from === currentUser._id || 
+            tx.from === currentUser._id?.toString()
+        )
+        : [];
 
     const currentGen = yieldData[yieldData.length - 1]?.generation || 0;
     const currentCons = yieldData[yieldData.length - 1]?.consumption || 0;
-    const surplus = currentGen - currentCons;
     const isIslanding = simMode === 'grid-fail';
     const isBatteryMode = currentGen < currentCons || simMode !== 'standard';
 
@@ -144,13 +136,16 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
 
                         <Row gutter={24} className="mb-8">
                             <Col span={8}>
-                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Current Output</span>} value={currentGen.toFixed(2)} suffix="kW" valueStyle={{ color: '#00ffe0', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
+                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Daily Yield</span>} value={stats?.dailyGeneration || 0} suffix="kWh" valueStyle={{ color: '#00ffe0', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
+                                <div className="text-[9px] text-[#00ff88] font-bold mt-1 uppercase tracking-tighter">Last 24 Hours</div>
                             </Col>
                             <Col span={8}>
-                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Home Load</span>} value={currentCons.toFixed(2)} suffix="kW" valueStyle={{ color: '#ff3b6a', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
+                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Daily Revenue</span>} value={(stats?.dailyGeneration || 0) * 0.12} prefix={settings.currency} valueStyle={{ color: '#ff3b6a', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
+                                <div className="text-[9px] text-muted font-bold mt-1 uppercase tracking-tighter">Est. Settlements</div>
                             </Col>
                             <Col span={8}>
-                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Live Surplus</span>} value={surplus.toFixed(2)} suffix="kW" valueStyle={{ color: surplus > 0 ? '#00ff88' : '#ffaa00', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
+                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Connected Clients</span>} value={stats?.connectedConsumers || 0} suffix="Nodes" valueStyle={{ color: '#00ff88', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
+                                <div className="text-[9px] text-muted font-bold mt-1 uppercase tracking-tighter">P2P Peer Directives</div>
                             </Col>
                         </Row>
 
@@ -303,12 +298,6 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                     dataIndex: 'greenHash',
                                     render: (hash) => hash ? (
                                         <div className="flex items-center gap-1 text-cyan-400">
-                                            <Statistic 
-                                                title={<span className="text-[10px] text-muted font-bold uppercase tracking-widest">Total Yield Revenue</span>} 
-                                                value={2458.50} 
-                                                prefix={<span className="text-cyan-400">{settings.currency}</span>}
-                                                valueStyle={{ color: '#fff', fontSize: '24px', fontWeight: '900', fontFamily: 'Outfit' }} 
-                                            />
                                             <Award size={12} />
                                             <span className="text-[10px] font-mono">{hash.substring(0, 8)}</span>
                                         </div>

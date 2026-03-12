@@ -50,11 +50,17 @@ const SpatialMap: React.FC = () => {
         ];
 
         const activeTx = transactions && transactions.length > 0 ? transactions : mockTransactions;
-        return activeTx.slice(0, 5).map((tx: any) => {
-            const fromNode = nodes.find((n: any) => n.username === tx.from);
-            const toNode = nodes.find((n: any) => n.username === tx.to);
+        return activeTx.slice(0, 10).map((tx: any) => {
+            const fromNode = nodes.find((n: any) => n.id === tx.from);
+            const toNode = nodes.find((n: any) => n.id === tx.to);
             if (fromNode && toNode) {
                 return { from: fromNode, to: toNode, id: tx._id };
+            }
+            // Fallback for mock mapping if necessary
+            const fromNamed = nodes.find((n: any) => n.username === tx.from);
+            const toNamed = nodes.find((n: any) => n.username === tx.to);
+            if (fromNamed && toNamed) {
+                return { from: fromNamed, to: toNamed, id: tx._id };
             }
             return null;
         }).filter(Boolean);

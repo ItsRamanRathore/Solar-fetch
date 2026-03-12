@@ -15,14 +15,30 @@ interface LiveBid {
 
 const LiveBidding: React.FC = () => {
     const { settings } = useSettings();
-    const [bids, setBids] = useState<LiveBid[]>([
-        { id: 'b1', type: 'Bid', price: 12.5, volume: 45.0, time: '23:55' },
-        { id: 'b2', type: 'Ask', price: 14.2, volume: 120.0, time: '23:56' },
-        { id: 'b3', type: 'Match', price: 13.1, volume: 15.5, time: '23:58' },
-        { id: 'b4', type: 'Bid', price: 12.8, volume: 22.4, time: '00:01' },
-        { id: 'b5', type: 'Ask', price: 15.0, volume: 88.2, time: '00:03' },
-    ]);
+    const [bids, setBids] = useState<LiveBid[]>([]);
     const { socket } = useSocket();
+
+    // Fetch initial trades from ledger
+    useEffect(() => {
+        const fetchInitial = async () => {
+            try {
+                const res = await fetch('/api/ledger');
+                if (!res.ok) throw new Error('Failed to fetch ledger');
+                const data = await res.json();
+                const initialBids = data.slice(0, 5).map((tx: any) => ({
+                    id: tx._id,
+                    type: (tx.provenance === 'P2P_GRID_SETTLEMENT' ? 'Match' : 'Ask') as 'Bid' | 'Ask' | 'Match',
+                    price: tx.price,
+                    volume: tx.amount,
+                    time: new Date(tx.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+                }));
+                setBids(initialBids);
+            } catch (err) {
+                console.error('Failed to load initial bidding data:', err);
+            }
+        };
+        fetchInitial();
+    }, []);
 
     useEffect(() => {
         // Fallback simulation for Demo if socket is disconnected
