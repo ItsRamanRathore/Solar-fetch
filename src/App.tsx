@@ -253,6 +253,7 @@ const App: React.FC = () => {
 
               {/* User Profile & Credits */}
               <div className="flex items-center gap-6 pl-4 h-12 my-auto border-l border-white/5">
+                <NotificationDrawer />
                 <div className="flex flex-col items-end">
                   <div className="text-[9px] text-muted font-black uppercase tracking-widest leading-none mb-1">Energy Credits</div>
                   <div className="text-lg font-black font-['Outfit'] neon-text-cyan leading-none">₹{credits.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>

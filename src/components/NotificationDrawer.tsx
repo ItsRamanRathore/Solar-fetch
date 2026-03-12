@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Drawer, Badge, List, Avatar } from 'antd';
-import { Bell, Zap, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Drawer, Badge, List } from 'antd';
+import { Bell, Zap, TrendingUp } from 'lucide-react';
 import { useSocket } from '../contexts/SocketContext';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 const NotificationDrawer: React.FC = () => {
     const [open, setOpen] = useState(false);
     const [notifications, setNotifications] = useState<any[]>([]);
-    const socket = useSocket();
+    const { socket } = useSocket();
 
     useEffect(() => {
         if (!socket) return;
