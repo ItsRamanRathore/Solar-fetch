@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Order from '../models/Order.js';
+import Conflict from '../models/Conflict.js';
 
 export const detectFraudulentActivity = async (io) => {
     try {
@@ -22,6 +23,15 @@ export const detectFraudulentActivity = async (io) => {
                 
                 // Flag user in DB for visual identification
                 await User.findByIdAndUpdate(user._id, { isFlagged: true });
+
+                // Persistent Conflict Record
+                await Conflict.create({
+                    username: user.username,
+                    userId: user._id,
+                    reason: 'VOLUMETRIC_MISMATCH',
+                    severity: 'CRITICAL',
+                    message: `Audit failed: IoT pulse (${maxCapa}kW) does not reconcile with Sale Order (${order.kwh}kW).`
+                });
 
                 io.emit('governance:fraud', {
                     userId: user._id,

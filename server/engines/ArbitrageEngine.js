@@ -1,9 +1,16 @@
 import User from '../models/User.js';
 import Order from '../models/Order.js';
 import GridState from '../models/GridState.js';
+import Governance from '../models/Governance.js';
 
 export const runArbitrageLogic = async (io) => {
     try {
+        const gov = await Governance.findOne();
+        if (gov && !gov.isAiEnabled) {
+            // AI is locked by administrator
+            return;
+        }
+
         const grid = await GridState.findOne().sort({ createdAt: -1 });
         if (!grid) return;
 

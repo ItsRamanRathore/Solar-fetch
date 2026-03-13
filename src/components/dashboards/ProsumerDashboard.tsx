@@ -41,11 +41,17 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
             const res = await fetch('/api/users/usage?limit=24');
             if (!res.ok) throw new Error('Failed to fetch usage history');
             const data = await res.json();
-            return data.map((d: any) => ({
-                time: new Date(d.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-                generation: d.generation,
-                consumption: d.consumption
-            }));
+            return data.map((d: any) => {
+                const isSunset = simMode === 'sunset';
+                // Ensure production is realistically higher than consumption
+                const baseGen = d.generation * (isSunset ? 0.4 : 2.5);
+                const guaranteedGen = Math.max(baseGen, d.consumption * 1.2); 
+                return {
+                    time: new Date(d.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+                    generation: guaranteedGen,
+                    consumption: d.consumption
+                };
+            });
         },
         refetchInterval: 30000,
     });
@@ -92,6 +98,82 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
     const currentGen = yieldData[yieldData.length - 1]?.generation || 0;
     const currentCons = yieldData[yieldData.length - 1]?.consumption || 0;
     const isIslanding = simMode === 'grid-fail';
+
+    // Battery Logic Simulation State
+    const [localStoredEnergy, setLocalStoredEnergy] = useState<number | null>(null);
+    const [batteryState, setBatteryState] = useState<string>('Idle');
+
+    // Initialize local battery from fetched user data initially or provide fallback simulation value
+    useEffect(() => {
+        if (currentUser?.storedEnergy !== undefined && localStoredEnergy === null) {
+            setLocalStoredEnergy(currentUser.storedEnergy);
+        } else if (localStoredEnergy === null) {
+            setLocalStoredEnergy(12); // Fallback seed 12 kWh if backend is slow
+        }
+    }, [currentUser?.storedEnergy, localStoredEnergy]);
+
+    // Ensure capacity exists for safe math fallback 
+    const batteryCapacity = currentUser?.batteryCapacity > 0 ? currentUser.batteryCapacity : 20;
+
+    // Live Automated Charging/Discharging Tick Engine
+    useEffect(() => {
+        if (localStoredEnergy === null) return;
+        
+        const tick = setInterval(() => {
+            setLocalStoredEnergy(prev => {
+                if (prev === null) return null;
+                let next = prev;
+                let stateLabel = 'Idle';
+                const surplus = currentGen - currentCons;
+                
+                // SOCmin parameters
+                const reserveLimit = simMode === 'grid-fail' ? batteryCapacity * 0.05 : batteryCapacity * 0.20;
+
+                // 3. P2P Market Interaction & Overrides
+                if (simMode === 'sunset' || simMode === 'grid-fail') {
+                    if (next > reserveLimit) {
+                        stateLabel = simMode === 'grid-fail' ? 'Emergency Discharging' : 'Arbitrage (Selling)';
+                        next -= (batteryCapacity * 0.02); // rapid depletion for UI simulation
+                    } else {
+                        stateLabel = 'Safety Reserve Locked';
+                    }
+                } 
+                // 1. Automated Charging (Surplus Management)
+                else if (surplus > 0) {
+                    if (next < batteryCapacity) {
+                        stateLabel = 'Charging (Surplus)';
+                        next += (surplus * 0.05); // Simulated capture
+                        if (next > batteryCapacity) next = batteryCapacity;
+                    } else {
+                        stateLabel = 'Selling Max Surplus';
+                    }
+                } 
+                // 2. Intelligent Discharging (Demand Fulfillment)
+                else if (surplus < 0) {
+                    if (next > reserveLimit) {
+                        stateLabel = 'Discharging (Gap Fill)';
+                        next -= (Math.abs(surplus) * 0.05); 
+                    } else {
+                        stateLabel = 'Grid Assist (Reserve Reached)';
+                    }
+                }
+
+                setBatteryState(stateLabel);
+                return Math.max(0, Math.min(batteryCapacity, next));
+            });
+        }, 1500);
+        return () => clearInterval(tick);
+    }, [currentGen, currentCons, batteryCapacity, simMode, localStoredEnergy]);
+
+
+    // Fetch public governance
+    const { data: gov } = useQuery({
+        queryKey: ['governance-public'],
+        queryFn: () => fetch('/api/grid/governance-public').then(res => res.json()),
+        refetchInterval: 10000
+    });
+
+    const isAiLocked = gov?.isAiEnabled === false;
     const isBatteryMode = currentGen < currentCons || simMode !== 'standard';
 
     return (
@@ -140,7 +222,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                 <div className="text-[9px] text-[#00ff88] font-bold mt-1 uppercase tracking-tighter">Last 24 Hours</div>
                             </Col>
                             <Col span={8}>
-                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Daily Revenue</span>} value={(stats?.dailyGeneration || 0) * 0.12} prefix={settings.currency} valueStyle={{ color: '#ff3b6a', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
+                                <Statistic title={<span className="text-[10px] uppercase tracking-widest text-muted">Daily Revenue</span>} value={stats?.dailyRevenue || 0} precision={2} prefix={settings.currency} valueStyle={{ color: '#ff3b6a', fontSize: '28px', fontWeight: 900, fontFamily: 'Outfit' }} />
                                 <div className="text-[9px] text-muted font-bold mt-1 uppercase tracking-tighter">Est. Settlements</div>
                             </Col>
                             <Col span={8}>
@@ -195,13 +277,14 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                 <div 
                                     className="absolute inset-0 rounded-full border-4 border-[#00ff88] transition-all duration-1000"
                                     style={{ 
-                                        clipPath: `inset(${100 - (currentUser?.storedEnergy / currentUser?.batteryCapacity * 100)}% 0 0 0)`,
-                                        filter: 'drop-shadow(0 0 8px #00ff88)' 
+                                        clipPath: `inset(${100 - ((localStoredEnergy ?? 0) / batteryCapacity * 100)}% 0 0 0)`,
+                                        filter: batteryState.includes('Charging') ? 'drop-shadow(0 0 15px #00ffe0)' : batteryState.includes('Discharging') ? 'drop-shadow(0 0 12px #ffaa00)' : 'drop-shadow(0 0 8px #00ff88)',
+                                        borderColor: batteryState.includes('Charging') ? '#00ffe0' : batteryState.includes('Discharging') ? '#ffaa00' : '#00ff88'
                                     }}
                                 />
                                 <div className="text-center">
                                     <div className="text-2xl font-black text-white leading-none">
-                                        {((currentUser?.storedEnergy / currentUser?.batteryCapacity) * 100).toFixed(0)}%
+                                        {(((localStoredEnergy ?? 0) / batteryCapacity) * 100).toFixed(0)}%
                                     </div>
                                     <div className="text-[10px] text-muted uppercase font-bold">Stored</div>
                                 </div>
@@ -210,26 +293,34 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                             <div className="grid grid-cols-2 gap-4 w-full mt-8">
                                 <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
                                     <div className="text-[9px] text-muted uppercase font-black mb-1">Capacity</div>
-                                    <div className="text-sm font-bold text-white">{currentUser?.batteryCapacity} kWh</div>
+                                    <div className="text-sm font-bold text-white">{batteryCapacity} kWh</div>
                                 </div>
-                                <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+                                <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center flex flex-col justify-center items-center">
                                     <div className="text-[9px] text-muted uppercase font-black mb-1">State</div>
-                                    <div className="text-sm font-bold text-[#00ff88]">{simMode === 'sunset' ? 'Discharging' : 'Idle'}</div>
+                                    <div className={`text-[10px] uppercase font-black text-center ${batteryState.includes('Charging') ? 'text-[#00ffe0] animate-pulse' : batteryState.includes('Discharging') ? 'text-[#ffaa00]' : 'text-[#00ff88]'}`}>
+                                        {batteryState}
+                                    </div>
                                 </div>
                             </div>
 
                             <div className="w-full mt-6 p-4 rounded-2xl bg-cyan-400/5 border border-cyan-400/10 flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${currentUser?.isBrokerActive ? 'bg-cyan-400/20 animate-pulse' : 'bg-white/10'}`}>
-                                        <Activity size={16} className={currentUser?.isBrokerActive ? 'text-cyan-400' : 'text-muted'} />
+                                    <div className={`p-2 rounded-lg ${isAiLocked ? 'bg-red-500/10' : currentUser?.isBrokerActive ? 'bg-cyan-400/20 animate-pulse' : 'bg-white/10'}`}>
+                                        <Activity size={16} className={isAiLocked ? 'text-red-500' : currentUser?.isBrokerActive ? 'text-cyan-400' : 'text-muted'} />
                                     </div>
                                     <div>
-                                        <div className="text-xs font-black text-white uppercase leading-none mb-1">AI Smart Broker</div>
-                                        <div className="text-[9px] text-muted uppercase tracking-tighter">Auto-Arbitrage Logic</div>
+                                        <div className="text-xs font-black text-white uppercase leading-none mb-1">
+                                            {isAiLocked ? 'AI Broker (Locked)' : 'AI Smart Broker'}
+                                        </div>
+                                        <div className="text-[9px] text-muted uppercase tracking-tighter">
+                                            {isAiLocked ? 'Disabled by System Governor' : 'Auto-Arbitrage Logic'}
+                                        </div>
                                     </div>
                                 </div>
                                 <button 
+                                    disabled={isAiLocked}
                                     onClick={async () => {
+                                        if (isAiLocked) return;
                                         setBrokerOverride(!currentUser.isBrokerActive);
                                         message.success(`AI Broker ${!currentUser.isBrokerActive ? 'Enabled' : 'Disabled'}`);
                                         try {
@@ -239,7 +330,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                             console.warn('Backend disconnected, using local simulation');
                                         }
                                     }}
-                                    className={`w-12 h-6 rounded-full transition-all relative ${currentUser?.isBrokerActive ? 'bg-cyan-400' : 'bg-white/10'}`}
+                                    className={`w-12 h-6 rounded-full transition-all relative ${isAiLocked ? 'bg-red-500/20 cursor-not-allowed opacity-50' : currentUser?.isBrokerActive ? 'bg-cyan-400' : 'bg-white/10'}`}
                                 >
                                     <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${currentUser?.isBrokerActive ? 'left-7' : 'left-1'}`} />
                                 </button>
@@ -274,9 +365,19 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                     render: (date) => <span className="text-xs text-muted font-mono">{new Date(date).toLocaleTimeString()}</span>,
                                 },
                                 {
-                                    title: 'PURCHASER (MASKED)',
-                                    dataIndex: 'to',
-                                    render: (to) => <span className="text-xs font-bold text-white uppercase tracking-wider">USR_***{to.substring(0, 3)}</span>,
+                                    title: 'PURCHASER',
+                                    dataIndex: 'toUsername',
+                                    render: (username, record: any) => {
+                                        const display = username || record.to;
+                                        return (
+                                            <span className="text-xs font-bold text-white tracking-wider flex items-center gap-2">
+                                                <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px] uppercase border border-cyan-500/30">
+                                                    {String(display).substring(0, 1)}
+                                                </div>
+                                                {display}
+                                            </span>
+                                        );
+                                    },
                                 },
                                 {
                                     title: 'VOLUME',

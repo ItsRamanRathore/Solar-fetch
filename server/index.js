@@ -13,6 +13,7 @@ import assetsRoutes from './routes/assets.js';
 import marketRoutes from './routes/market.js';
 import ledgerRoutes from './routes/ledger.js';
 import adminRoutes from './routes/admin.js';
+import userRoutes from './routes/users.js';
 import { runArbitrageLogic } from './engines/ArbitrageEngine.js';
 import { detectFraudulentActivity } from './engines/FraudEngine.js';
 
@@ -104,8 +105,59 @@ if (!isVercel) {
         // Slightly decrease battery capacity for any active user to simulate wear
         try {
             const User = (await import('./models/User.js')).default;
+            const Usage = (await import('./models/Usage.js')).default;
+            
             await User.updateMany({ role: 'prosumer' }, { $mul: { batteryCapacity: 0.99995 } });
-        } catch (e) {}
+
+            // Periodic Usage Simulation (Last 24h data filler)
+            const allUsers = await User.find({ role: { $in: ['consumer', 'prosumer'] } });
+            const now = new Date();
+            
+            for (const user of allUsers) {
+                // Generate a random usage record if none exists for this minute
+                const startOfMinute = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes());
+                const alreadyHasUsage = await Usage.findOne({ user: user._id, timestamp: { $gte: startOfMinute } });
+                
+                if (!alreadyHasUsage) {
+                    const isSunset = currentMode === 'sunset';
+                    const isProsumer = user.role === 'prosumer';
+                    
+                    // Realistic Diurnal Simulation
+                    // Hour 0-24 -> Radians 0-2PI
+                    const hour = now.getHours();
+                    const radian = (hour / 24) * 2 * Math.PI;
+                    
+                    // Consumption: Peaks at 8am (radian PI/1.5) and 8pm (radian PI/0.6)
+                    // We'll use a sum of sines for "morning peak" and "evening peak"
+                    const morningPeak = Math.exp(-Math.pow(hour - 8, 2) / 8);
+                    const eveningPeak = Math.exp(-Math.pow(hour - 20, 2) / 10);
+                    const baselineCons = 1.0; // 1kWh baseline
+                    let consVal = baselineCons + (morningPeak * 2) + (eveningPeak * 3) + (Math.random() * 0.5);
+
+                    // Generation: Prosumers generate based on the "Sun" (peak at 12pm)
+                    // Solar Bell Curve: peak at 12, zero at < 6 and > 18
+                    let genVal = 0.5 + Math.random() * 0.5; // Wind/Storage baseline
+                    if (isProsumer && hour >= 6 && hour <= 18) {
+                        genVal += Math.sin((hour - 6) / 12 * Math.PI) * 8 + (Math.random() * 1);
+                    }
+
+                    if (isSunset) {
+                        genVal = genVal * 0.1; // Sudden drop
+                        consVal = consVal * 1.8; // Grid stress spike
+                    }
+
+                    await Usage.create({
+                        user: user._id,
+                        timestamp: now,
+                        consumption: +consVal.toFixed(2),
+                        generation: +genVal.toFixed(2),
+                        storage: isProsumer ? user.storedEnergy : 0
+                    });
+                }
+            }
+        } catch (e) {
+            console.error('[UsageSim Error]:', e);
+        }
     }, 3000);
 
     const PORT = process.env.PORT || 5000;
@@ -134,8 +186,8 @@ app.use(express.json());
 app.use(cookieParser());
 
 const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 500,
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 10000, // Extremely high for dev/demo stability
     standardHeaders: true,
     legacyHeaders: false,
 });
@@ -200,6 +252,7 @@ app.use('/api/assets', assetsRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/ledger', ledgerRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/users', userRoutes);
 
 app.get('/api/health', (req, res) => {
     res.json({ 

@@ -1,9 +1,10 @@
 import React from 'react';
 import { Card, Row, Col, Table, Button, message, Form, InputNumber, Tabs, Tag } from 'antd';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldAlert, CheckCircle, XCircle, Power, Settings2, ShieldCheck, Database, Lock, Settings, HelpCircle } from 'lucide-react';
+import { ShieldAlert, CheckCircle, XCircle, Power, Settings2, ShieldCheck, Database, Lock, Settings, HelpCircle, Cpu } from 'lucide-react';
 import LedgerView from '../views/LedgerView';
 import { useSettings } from '../../contexts/SettingsContext';
+import { useSocket } from '../../contexts/SocketContext';
 
 interface AdminDashboardProps {
     simMode: string;
@@ -12,6 +13,7 @@ interface AdminDashboardProps {
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
     const queryClient = useQueryClient();
+    const { socket } = useSocket();
     const [form] = Form.useForm();
     const isGridFail = simMode === 'grid-fail';
     const isSunset = simMode === 'sunset';
@@ -52,7 +54,39 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
         }
     });
 
-    const gov = govFetch || { priceCap: 0, floorPrice: 0, isTradingPaused: false };
+    const gov = govFetch || { priceCap: 0, floorPrice: 0, isTradingPaused: false, isAiEnabled: true };
+
+    // Fetch Conflicts
+    const { data: conflicts, refetch: refetchConflicts } = useQuery({
+        queryKey: ['adminConflicts'],
+        queryFn: async () => {
+            const res = await fetch('/api/admin/conflicts');
+            if (!res.ok) throw new Error('Failed to fetch conflicts');
+            return res.json();
+        },
+        refetchInterval: 10000
+    });
+
+    // Fetch grid stats
+    const { data: gridStats } = useQuery({
+        queryKey: ['gridStats'],
+        queryFn: async () => {
+            const res = await fetch('/api/grid/stats');
+            if (!res.ok) throw new Error('Failed to fetch grid stats');
+            return res.json();
+        },
+        refetchInterval: 5000
+    });
+
+    // Listen for live alerts
+    React.useEffect(() => {
+        if (!socket) return;
+        socket.on('governance:fraud', () => {
+            message.error('INTEGRITY ALERT: New conflict detected in the grid cluster');
+            refetchConflicts();
+        });
+        return () => { socket.off('governance:fraud'); };
+    }, [socket, refetchConflicts]);
 
     // Mutations
     const approveUser = useMutation({
@@ -89,7 +123,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
 
     // Set form initial values when gov loads
     React.useEffect(() => {
-        if (gov) form.setFieldsValue({ priceCap: gov.priceCap, floorPrice: gov.floorPrice });
+        if (gov) form.setFieldsValue({ 
+            priceCap: gov.priceCap, 
+            floorPrice: gov.floorPrice,
+            isAiEnabled: gov.isAiEnabled
+        });
     }, [gov, form]);
 
     return (
@@ -154,8 +192,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
                                         <div className="text-sm font-bold text-[#00ff88]">{stats?.consumers || 0}</div>
                                     </div>
                                     <div className="p-2 rounded bg-white/5 border border-white/10">
-                                        <div className="text-[8px] text-muted uppercase font-black">Network</div>
-                                        <div className="text-sm font-bold text-white">{stats?.totalUsers || 0}</div>
+                                        <div className="text-[8px] text-muted uppercase font-black">P2P Trades</div>
+                                        <div className="text-sm font-bold text-[#00e5ff]">{gridStats?.activeTrades || 0}</div>
                                     </div>
                                 </div>
                                 <div className="text-[10px] text-muted uppercase mt-4 w-64 mx-auto">
@@ -185,10 +223,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
                                         <InputNumber className="w-full glass-input" size="large" precision={3} step={0.05} />
                                     </Form.Item>
                                 </Col>
-                                <Col span={12}>
+                                <Col span={8}>
                                     <Form.Item name="floorPrice" label={<span className="text-xs text-white uppercase">Floor Price ({settings.currency}/kWh)</span>}>
                                         <InputNumber className="w-full glass-input" size="large" precision={3} step={0.05} />
-                                    </Form.Item>                              </Col>
+                                    </Form.Item>
+                                </Col>
+                                <Col span={8} className="flex flex-col justify-center pb-6">
+                                    <div className="text-xs text-white uppercase mb-2">Autonomous AI Engines</div>
+                                    <Form.Item name="isAiEnabled" valuePropName="checked" className="m-0">
+                                        <Button 
+                                            onClick={() => {
+                                                const current = form.getFieldValue('isAiEnabled');
+                                                updateGovernance.mutate({ isAiEnabled: !current });
+                                            }}
+                                            className={`w-full font-black uppercase tracking-widest h-10 border-none flex items-center justify-center gap-2 ${gov?.isAiEnabled ? 'bg-[#00ff88]/20 text-[#00ff88]' : 'bg-red-500/20 text-red-500'}`}
+                                        >
+                                            <Cpu size={14} />
+                                            {gov?.isAiEnabled ? 'AI ACTIVE' : 'AI LOCKED'}
+                                        </Button>
+                                    </Form.Item>
+                                </Col>
                             </Row>
                             <Button type="primary" htmlType="submit" className="bg-[#00e5ff] hover:bg-[#00ff88] text-black font-black uppercase border-none w-48 h-10 mt-2" loading={updateGovernance.isPending}>
                                 Apply Directives
@@ -216,7 +270,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
                                     label: <span className="font-bold uppercase tracking-wider text-xs flex items-center gap-2 text-red-400"><ShieldAlert size={16} /> Conflict Resolution</span>,
                                     children: (
                                         <div className="mt-4">
-                                            <ConflictResolutionView />
+                                            <ConflictResolutionView conflicts={conflicts || []} refetch={refetchConflicts} />
                                         </div>
                                     )
                                 },
@@ -320,18 +374,17 @@ const VettingList: React.FC<any> = ({ users, loading, isGridFail, approveUser, s
     </div>
 );
 
-const ConflictResolutionView: React.FC = () => {
-    // We'll use local state for real-time socket alerts combined with a list
-    const [alerts, setAlerts] = React.useState<any[]>([]);
+const ConflictResolutionView: React.FC<{ conflicts: any[], refetch: () => void }> = ({ conflicts, refetch }) => {
+    const queryClient = useQueryClient();
 
-    React.useEffect(() => {
-        // This would ideally listen to the 'governance:fraud' socket event
-        // Mocking some data for the initial view
-        setAlerts([
-            { id: 1, username: 'Node-44M', reason: 'VOLUMETRIC_MISMATCH', severity: 'CRITICAL', message: 'Audit failed: IoT pulse (12kW) does not reconcile with Sale Order (50kW).' },
-            { id: 2, username: 'Solar_Bot_09', reason: 'REPLAY_ATTACK_DETECTED', severity: 'WARNING', message: 'Cryptographic hash mismatch in recent P2P settlement.' }
-        ]);
-    }, []);
+    const resolveConflict = useMutation({
+        mutationFn: async (id: string) => fetch(`/api/admin/conflicts/${id}/resolve`, { method: 'PUT' }),
+        onSuccess: () => {
+            message.success('Conflict Resolved & Node Cleared');
+            refetch();
+            queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+        }
+    });
 
     return (
         <div className="space-y-4">
@@ -342,28 +395,41 @@ const ConflictResolutionView: React.FC = () => {
                 </div>
                 <p className="text-xs text-muted m-0">The Governor Engine is continuously reconciling physical IoT yield data with the behavioral settlement ledger.</p>
             </div>
-            {alerts.map(alert => (
-                <div key={alert.id} className="p-6 rounded-2xl bg-[#0a0f18] border border-white/5 flex items-center justify-between group hover:border-red-500/30 transition-all">
-                    <div className="flex items-center gap-6">
-                        <div className={`p-4 rounded-xl ${alert.severity === 'CRITICAL' ? 'bg-red-500/10' : 'bg-orange-500/10'}`}>
-                            <ShieldAlert className={alert.severity === 'CRITICAL' ? 'text-red-500' : 'text-orange-500'} size={24} />
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-3 mb-1">
-                                <span className="text-white font-black uppercase tracking-widest text-sm">{alert.username}</span>
-                                <span className={`text-[9px] font-black px-2 py-0.5 rounded ${alert.severity === 'CRITICAL' ? 'bg-red-500 text-black' : 'bg-orange-500 text-black'}`}>
-                                    {alert.reason}
-                                </span>
-                            </div>
-                            <p className="text-xs text-white/50 m-0">{alert.message}</p>
-                        </div>
-                    </div>
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button className="bg-red-500 border-none text-black font-black uppercase tracking-tighter text-[10px] h-8">Freeze Node</Button>
-                        <Button className="bg-white/5 border border-white/10 text-white font-black uppercase tracking-tighter text-[10px] h-8">Investigate</Button>
-                    </div>
+            
+            {conflicts.length === 0 ? (
+                <div className="py-20 text-center glass-card border-dashed border-white/10">
+                    <ShieldCheck size={48} className="text-[#00ff88] mx-auto opacity-20 mb-4" />
+                    <div className="text-muted text-xs uppercase font-black tracking-widest">No Active Integrity Conflicts</div>
                 </div>
-            ))}
+            ) : (
+                conflicts.map(alert => (
+                    <div key={alert._id} className={`p-6 rounded-2xl border flex items-center justify-between group transition-all ${alert.status === 'RESOLVED' ? 'bg-white/5 border-white/10 opacity-50' : 'bg-[#0a0f18] border-white/5 hover:border-red-500/30'}`}>
+                        <div className="flex items-center gap-6">
+                            <div className={`p-4 rounded-xl ${alert.status === 'RESOLVED' ? 'bg-muted/10' : alert.severity === 'CRITICAL' ? 'bg-red-500/10' : 'bg-orange-500/10'}`}>
+                                {alert.status === 'RESOLVED' ? <CheckCircle className="text-muted" size={24} /> : <ShieldAlert className={alert.severity === 'CRITICAL' ? 'text-red-500' : 'text-orange-500'} size={24} />}
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-3 mb-1">
+                                    <span className="text-white font-black uppercase tracking-widest text-sm">{alert.username}</span>
+                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded ${alert.status === 'RESOLVED' ? 'bg-muted text-black' : alert.severity === 'CRITICAL' ? 'bg-red-500 text-black' : 'bg-orange-500 text-black'}`}>
+                                        {alert.reason}
+                                    </span>
+                                    {alert.status === 'RESOLVED' && <Tag color="green">RESOLVED</Tag>}
+                                </div>
+                                <p className="text-xs text-white/50 m-0">{alert.message}</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {alert.status !== 'RESOLVED' && (
+                                <>
+                                    <Button onClick={() => resolveConflict.mutate(alert._id)} loading={resolveConflict.isPending} className="bg-[#00ff88] border-none text-black font-black uppercase tracking-tighter text-[10px] h-8">Clear Integrity</Button>
+                                    <Button className="bg-red-500 border-none text-black font-black uppercase tracking-tighter text-[10px] h-8">Freeze Node</Button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                ))
+            )}
         </div>
     );
 };

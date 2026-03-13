@@ -3,6 +3,7 @@ import GridState from '../models/GridState.js';
 import Usage from '../models/Usage.js';
 import Transaction from '../models/Transaction.js';
 import User from '../models/User.js';
+import Governance from '../models/Governance.js';
 
 const router = express.Router();
 
@@ -90,6 +91,25 @@ router.put('/', async (req, res) => {
     try {
         const state = await GridState.findOneAndUpdate({}, req.body, { returnDocument: 'after', upsert: true, sort: { createdAt: -1 } });
         res.json(state);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get non-sensitive governance settings (Public)
+router.get('/governance-public', async (req, res) => {
+    try {
+        let gov = await Governance.findOne();
+        if (!gov) {
+            gov = await Governance.create({ isTradingPaused: false, priceCap: 25.00, floorPrice: 1.00, isAiEnabled: true });
+        }
+        res.json({
+            isTradingPaused: gov.isTradingPaused,
+            isAiEnabled: gov.isAiEnabled,
+            priceCap: gov.priceCap,
+            floorPrice: gov.floorPrice,
+            globalDirective: gov.globalDirective
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

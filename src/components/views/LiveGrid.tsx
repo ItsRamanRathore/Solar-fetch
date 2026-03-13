@@ -30,7 +30,7 @@ const LiveGrid: React.FC<LiveGridProps> = ({ simMode, userRole }) => {
                     <Button className="bg-orange-500 text-black border-none font-black uppercase tracking-widest text-[10px]">Acknowledge Alert</Button>
                 </div>
             )}
-            <HeaderStats />
+            <HeaderStats userRole={userRole} />
             {userRole === 'admin' && (
                 <Row gutter={[24, 24]} className="mb-10">
                     <Col span={24}>
@@ -65,9 +65,9 @@ const LiveGrid: React.FC<LiveGridProps> = ({ simMode, userRole }) => {
                 </Row>
             )}
             <DashboardGrid
-                topLeft={<SpatialMap />}
+                topLeft={<SpatialMap userRole={userRole} />}
                 topRight={<LiveBidding />}
-                bottomLeft={<EnergyCharts />}
+                bottomLeft={<EnergyCharts simMode={simMode} />}
                 bottomRight={<NeighborDiscovery />}
             />
         </div>

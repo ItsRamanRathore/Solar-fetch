@@ -96,6 +96,15 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
         refetchInterval: 5000,
     });
 
+    // Fetch public governance
+    const { data: gov } = useQuery({
+        queryKey: ['governance-public'],
+        queryFn: () => fetch('/api/grid/governance-public').then(res => res.json()),
+        refetchInterval: 10000
+    });
+
+    const isAiLocked = gov?.isAiEnabled === false;
+
     const currentProsumers = prosumers || [];
 
     // Apply simulation scarcity pricing
@@ -164,15 +173,15 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
 
     // Household Stats calculations
     const dailyKwh = stats?.dailyKwh || 0;
-    const totalCost = stats?.totalCost || 0;
+    const dailyCost = stats?.dailyCost || 0;
     const connectedProsumer = stats?.connectedProsumer;
 
     const applianceBreakdown = [
-        { name: 'HVAC & Climate', value: dailyKwh * 0.38, percent: 38, color: '#ff4d4f' },
-        { name: 'Devices & Plug Load', value: dailyKwh * 0.25, percent: 25, color: '#00e5ff' },
-        { name: 'Kitchen & Refrigeration', value: dailyKwh * 0.14, percent: 14, color: '#faad14' },
-        { name: 'Lighting', value: dailyKwh * 0.12, percent: 12, color: '#00ff88' },
-        { name: 'Other', value: dailyKwh * 0.11, percent: 11, color: '#475569' }
+        { name: 'HVAC & Climate', value: dailyKwh * 0.42, percent: 42, color: '#ff4d4f' },
+        { name: 'Devices & Plug Load', value: dailyKwh * 0.22, percent: 22, color: '#00e5ff' },
+        { name: 'Kitchen & Refrigeration', value: dailyKwh * 0.18, percent: 18, color: '#faad14' },
+        { name: 'Lighting', value: dailyKwh * 0.10, percent: 10, color: '#00ff88' },
+        { name: 'Other', value: dailyKwh * 0.08, percent: 8, color: '#475569' }
     ];
 
     const nextHour = (currentTime + 1) % 24;
@@ -220,7 +229,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
                         <div className="space-y-6">
                             <div>
                                 <div className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1 text-center">Energy Used Today</div>
-                                <div className="text-4xl font-black text-white text-center font-['Outfit']">{dailyKwh} <span className="text-lg text-muted">kWh</span></div>
+                                <div className="text-4xl font-black text-white text-center font-['Outfit']">{dailyKwh.toFixed(2)} <span className="text-lg text-muted">kWh</span></div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
@@ -233,9 +242,9 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
                                 </div>
                             </div>
                             <div className="p-4 rounded-xl bg-cyan-400/5 border border-cyan-400/10">
-                                <div className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1">Grid Expenditures</div>
+                                <div className="text-[10px] text-muted font-bold uppercase tracking-widest mb-1">Grid Expenditures (24h)</div>
                                 <div className="flex justify-between items-end">
-                                    <div className="text-xl font-black text-white">{settings.currency}{totalCost.toLocaleString()}</div>
+                                    <div className="text-xl font-black text-white">{settings.currency}{dailyCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                     <div className="text-[10px] text-[#00ff88] font-bold">LIVE SETTLEMENT</div>
                                 </div>
                             </div>
@@ -287,7 +296,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
                                     <div key={item.name} className="space-y-1">
                                         <div className="flex justify-between text-[9px] font-bold uppercase">
                                             <span className="text-white/70">{item.name}</span>
-                                            <span className="text-white">{item.value.toFixed(2)}kW</span>
+                                            <span className="text-white">{item.value.toFixed(2)} kWh</span>
                                         </div>
                                         <Progress percent={item.percent} strokeColor={item.color} showInfo={false} size="small" trailColor="rgba(255,255,255,0.05)" />
                                     </div>
@@ -300,11 +309,14 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
                 {/* Bidding Engine */}
                 <Col xs={24} lg={8}>
                     <Card className="glass-card h-full" bodyStyle={{ padding: '24px' }}>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 m-0 mb-6">
-                            <Zap size={16} className="text-[#00ffe0]" /> Bidding Engine
-                        </h3>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 m-0">
+                                <Zap size={16} className={isAiLocked ? "text-red-500" : "text-[#00ffe0]"} /> Bidding Engine
+                            </h3>
+                            {isAiLocked && <span className="bg-red-500/20 text-red-500 text-[9px] font-black px-2 py-0.5 rounded uppercase border border-red-500/30">AI Locked</span>}
+                        </div>
                         <div className="space-y-6">
-                            <Form form={form} layout="vertical" onFinish={onFinish}>
+                            <Form form={form} layout="vertical" onFinish={(v) => placeBidMutation.mutate(v)} disabled={isAiLocked || placeBidMutation.isPending}>
                                 <Form.Item name="kwh" label={<span className="text-xs text-white">Target Volume (kWh)</span>} rules={[{ required: true, type: 'number', min: 0.1 }]}>
                                     <InputNumber className="w-full glass-input" size="large" placeholder="0.00" precision={2} />
                                 </Form.Item>
@@ -369,7 +381,9 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
                                             <div>
                                                 <div className="text-sm font-bold text-white mb-2">Strategic Recommendation</div>
                                                 <div className="text-xs text-muted leading-relaxed">
-                                                    {isGridFail
+                                                    {isAiLocked
+                                                        ? "AI STRATEGIST OFFLINE: Global intelligence features have been suspended by Administrator."
+                                                        : isGridFail
                                                         ? `SYSTEM ALERT: Turn off AC/Luxury devices to save ${settings.currency}50/hour. High grid strain detected.`
                                                         : isEvening
                                                         ? "Evening peak approaching. Secure bids now before neighborhood prices surge by estimated 35%."

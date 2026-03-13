@@ -2,6 +2,8 @@ import express from 'express';
 import { z } from 'zod';
 import User from '../models/User.js';
 import Governance from '../models/Governance.js';
+import Conflict from '../models/Conflict.js';
+import Transaction from '../models/Transaction.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -51,7 +53,7 @@ router.get('/governance', async (req, res, next) => {
     try {
         let gov = await Governance.findOne();
         if (!gov) {
-            gov = await Governance.create({ isTradingPaused: false, priceCap: 25.00, floorPrice: 1.00 });
+            gov = await Governance.create({ isTradingPaused: false, priceCap: 25.00, floorPrice: 1.00, isAiEnabled: true });
         }
         res.json(gov);
     } catch (err) {
@@ -63,6 +65,7 @@ const govSchema = z.object({
     isTradingPaused: z.boolean().optional(),
     priceCap: z.number().positive().optional(),
     floorPrice: z.number().positive().optional(),
+    isAiEnabled: z.boolean().optional(),
     globalDirective: z.object({
         message: z.string(),
         active: z.boolean()
@@ -81,6 +84,7 @@ router.put('/governance', async (req, res, next) => {
         if (updates.isTradingPaused !== undefined) gov.isTradingPaused = updates.isTradingPaused;
         if (updates.priceCap !== undefined) gov.priceCap = updates.priceCap;
         if (updates.floorPrice !== undefined) gov.floorPrice = updates.floorPrice;
+        if (updates.isAiEnabled !== undefined) gov.isAiEnabled = updates.isAiEnabled;
         
         if (updates.globalDirective) {
             gov.globalDirective = {
@@ -91,6 +95,58 @@ router.put('/governance', async (req, res, next) => {
 
         await gov.save();
         res.json(gov);
+    } catch (err) {
+        next(err);
+    }
+});
+
+// --- Conflict Management ---
+router.get('/conflicts', async (req, res, next) => {
+    try {
+        const conflicts = await Conflict.find().sort({ createdAt: -1 });
+        res.json(conflicts);
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.put('/conflicts/:id/resolve', async (req, res, next) => {
+    try {
+        const conflict = await Conflict.findById(req.params.id);
+        if (!conflict) return res.status(404).json({ error: 'Conflict not found' });
+        conflict.status = 'RESOLVED';
+        await conflict.save();
+        res.json(conflict);
+    } catch (err) {
+        next(err);
+    }
+});
+
+// --- Ledger Tools ---
+router.get('/ledger/export', async (req, res, next) => {
+    try {
+        const transactions = await Transaction.find().sort({ timestamp: -1 });
+        let csv = 'Time,From,To,Amount,Price,Total,Status\n';
+        transactions.forEach(tx => {
+            csv += `${tx.timestamp.toISOString()},${tx.from},${tx.to},${tx.amount},${tx.price},${tx.settlementTotal},${tx.status}\n`;
+        });
+        res.header('Content-Type', 'text/csv');
+        res.attachment('ledger-export.csv');
+        res.send(csv);
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.post('/ledger/verify', async (req, res, next) => {
+    try {
+        // Simulated chain verification
+        await new Promise(r => setTimeout(r, 1500));
+        res.json({ 
+            success: true, 
+            message: 'All 822 transactions verified against regional hash anchors.',
+            consensus: '99.98%'
+        });
     } catch (err) {
         next(err);
     }

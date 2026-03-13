@@ -43,6 +43,13 @@ router.get('/stats', requireAuth, async (req, res) => {
                 { $group: { _id: null, dailyGen: { $sum: "$generation" } } }
             ]);
             stats.dailyGeneration = daily[0]?.dailyGen || 0;
+
+            // Daily Revenue (Last 24h)
+            const dailyRev = await Transaction.aggregate([
+                { $match: { from: req.user._id.toString(), status: 'SETTLED', timestamp: { $gt: last24h } } },
+                { $group: { _id: null, total: { $sum: "$settlementTotal" } } }
+            ]);
+            stats.dailyRevenue = dailyRev[0]?.total || 0;
             
         } else if (req.user.role === 'consumer') {
             if (req.user.connectedProsumer) {
@@ -64,6 +71,13 @@ router.get('/stats', requireAuth, async (req, res) => {
                 { $group: { _id: null, dailyCons: { $sum: "$consumption" } } }
             ]);
             stats.dailyKwh = daily[0]?.dailyCons || 0;
+
+            // Daily Cost (Last 24h)
+            const dailyCost = await Transaction.aggregate([
+                { $match: { to: req.user._id.toString(), status: 'SETTLED', timestamp: { $gt: last24h } } },
+                { $group: { _id: null, total: { $sum: "$settlementTotal" } } }
+            ]);
+            stats.dailyCost = dailyCost[0]?.total || 0;
         }
 
         res.json(stats);
@@ -89,7 +103,7 @@ router.get('/usage', requireAuth, async (req, res) => {
 
 router.get('/prosumers', async (req, res) => {
     try {
-        const prosumers = await User.find({ role: { $in: ['prosumer', 'consumer'] }, status: 'approved' }).select('username role trustScore isCertified credits');
+        const prosumers = await User.find({ role: { $in: ['prosumer', 'consumer'] }, status: 'approved' }).select('username role trustScore isCertified credits connectedProsumer');
         res.json(prosumers);
     } catch (err) {
         res.status(500).json({ error: err.message });

@@ -6,7 +6,7 @@ import { Radio } from 'lucide-react';
 const DirectiveTicker: React.FC = () => {
     const { data: gov } = useQuery({
         queryKey: ['governance'],
-        queryFn: () => fetch('/api/admin/governance').then(res => res.json()),
+        queryFn: () => fetch('/api/grid/governance-public').then(res => res.json()),
         refetchInterval: 10000
     });
 

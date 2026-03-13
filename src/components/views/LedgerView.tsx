@@ -2,7 +2,8 @@ import React from 'react';
 import { Card, Table, Tag, Input, Button, Row, Col } from 'antd';
 import { Database, Search, ShieldCheck, Download, Box, Activity, Zap, Lock, ArrowRight, Award } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { message as antMessage } from 'antd';
 
 interface LedgerViewProps {
     simMode?: string;
@@ -23,6 +24,17 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
             }));
         }
     });
+
+    const verifyChain = useMutation({
+        mutationFn: async () => fetch('/api/admin/ledger/verify', { method: 'POST' }).then(res => res.json()),
+        onSuccess: (data) => {
+            antMessage.success(data.message);
+        }
+    });
+
+    const exportCSV = () => {
+        window.open('/api/admin/ledger/export', '_blank');
+    };
 
     const columns = [
         {
@@ -112,8 +124,8 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
                     <p className="text-sm text-muted m-0">Verifiable provenance and green certificates for every peer-to-peer settlement</p>
                 </div>
                 <div className="flex gap-4">
-                    <Button icon={<Download size={18} />} className="glass-btn-secondary">Export CSV</Button>
-                    <Button type="primary" className="glass-btn-primary">Verify Full Chain</Button>
+                    <Button icon={<Download size={18} />} onClick={exportCSV} className="glass-btn-secondary">Export CSV</Button>
+                    <Button type="primary" onClick={() => verifyChain.mutate()} loading={verifyChain.isPending} className="glass-btn-primary">Verify Full Chain</Button>
                 </div>
             </div>
 

@@ -4,7 +4,11 @@ import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { MapPin, Activity } from 'lucide-react';
 
-const SpatialMap: React.FC = () => {
+interface SpatialMapProps {
+    userRole?: 'prosumer' | 'consumer' | 'admin';
+}
+
+const SpatialMap: React.FC<SpatialMapProps> = ({ userRole = 'admin' }) => {
     // Fetch all users to display as nodes
     const { data: users } = useQuery({
         queryKey: ['users:all'],
@@ -21,61 +25,80 @@ const SpatialMap: React.FC = () => {
 
     // Process nodes
     const nodes = useMemo(() => {
-        const mockUsers = [
-            { _id: 'm1', username: 'Node-Z8', role: 'prosumer', x: 150, y: 120, isCertified: true },
-            { _id: 'm2', username: 'Cluster-B', role: 'consumer', x: 450, y: 80, isCertified: false },
-            { _id: 'm3', username: 'Peer-44M', role: 'prosumer', x: 600, y: 280, isCertified: true },
-            { _id: 'm4', username: 'Green-Base', role: 'consumer', x: 200, y: 320, isCertified: false },
-            { _id: 'm5', username: 'Solar-Hub', role: 'prosumer', x: 400, y: 200, isCertified: true, isFlagged: true },
-        ];
-
-        const activeUsers = users && users.length > 0 ? users : mockUsers;
-        return activeUsers.map((u: any) => ({
-            id: u._id,
-            username: u.username,
-            role: u.role || 'prosumer',
-            x: u.x || Math.random() * 700 + 50,
-            y: u.y || Math.random() * 300 + 50,
-            isCertified: u.isCertified,
-            isFlagged: u.isFlagged
-        }));
+        const activeUsers = users && users.length > 0 ? users : [];
+        return activeUsers.map((u: any, idx: number) => {
+            // Use deterministic grid positioning if x/y not in DB
+            const col = idx % 5;
+            const row = Math.floor(idx / 5);
+            return {
+                id: u._id,
+                username: u.username,
+                role: u.role || 'prosumer',
+                // Map to a 800x400 SVG space
+                x: u.x || (150 + col * 130 + (row % 2 === 0 ? 0 : 40)),
+                y: u.y || (100 + row * 100),
+                isCertified: u.isCertified,
+                isFlagged: u.isFlagged,
+                credits: u.credits || 0
+            };
+        });
     }, [users]);
 
     // Process flows
     const flows = useMemo(() => {
-        const mockTransactions = [
-            { _id: 't1', from: 'Node-Z8', to: 'Cluster-B' },
-            { _id: 't2', from: 'Solar-Hub', to: 'Green-Base' },
-            { _id: 't3', from: 'Peer-44M', to: 'Solar-Hub' }
-        ];
 
-        const activeTx = transactions && transactions.length > 0 ? transactions : mockTransactions;
-        return activeTx.slice(0, 10).map((tx: any) => {
-            const fromNode = nodes.find((n: any) => n.id === tx.from);
-            const toNode = nodes.find((n: any) => n.id === tx.to);
+        const activeTx = transactions && transactions.length > 0 ? transactions : [];
+        return activeTx.slice(0, 15).map((tx: any) => {
+            const fromNode = nodes.find((n: any) => n.id === tx.from || n.username === tx.from);
+            const toNode = nodes.find((n: any) => n.id === tx.to || n.username === tx.to);
             if (fromNode && toNode) {
-                return { from: fromNode, to: toNode, id: tx._id };
-            }
-            // Fallback for mock mapping if necessary
-            const fromNamed = nodes.find((n: any) => n.username === tx.from);
-            const toNamed = nodes.find((n: any) => n.username === tx.to);
-            if (fromNamed && toNamed) {
-                return { from: fromNamed, to: toNamed, id: tx._id };
+                return { from: fromNode, to: toNode, id: tx._id, amount: tx.amount };
             }
             return null;
         }).filter(Boolean);
     }, [transactions, nodes]);
 
+    // Process nodes based on role permissions
+    const displayNodes = useMemo(() => {
+        let n = nodes;
+        
+        if (userRole === 'consumer') {
+            // Consumer only sees supply nodes (Prosumers) and price, no other consumers
+            n = nodes.filter((n: any) => n.role === 'prosumer').map((n: any, i: number) => ({
+                ...n,
+                username: `Supply Node ${i+1} (${(Math.random() * 5 + 10).toFixed(1)} ¢/kWh)` // Mock price
+            }));
+        } else if (userRole === 'prosumer') {
+            // Prosumer sees local cluster and anonymized buyer heatmap
+            n = nodes.map((n: any) => ({
+                ...n,
+                username: n.role === 'consumer' ? 'Masked Demand' : n.username
+            }));
+        }
+
+        return n;
+    }, [nodes, userRole]);
+
+    // Process flows based on role permissions
+    const displayFlows = useMemo(() => {
+        if (userRole === 'consumer') return []; // Consumers don't see internal wiring
+        return flows;
+    }, [flows, userRole]);
+
+    const titleText = userRole === 'admin' ? 'Regional Node Topology' 
+                    : userRole === 'prosumer' ? 'Local Network Health & Buyer Heatmap' 
+                    : 'Grid Supply Map';
+
     return (
         <Card className="glass-card-dark h-full overflow-hidden relative border-white/5" bodyStyle={{ padding: 0, height: '100%' }}>
             <div className="absolute top-4 left-6 z-10 flex flex-col gap-1">
                 <h3 className="text-xs font-black text-white uppercase tracking-[0.2em] m-0 flex items-center gap-2">
-                    <MapPin size={14} className="text-cyan-400" /> Regional Node Topology
+                    <MapPin size={14} className="text-cyan-400" /> {titleText}
                 </h3>
                 <div className="text-[9px] text-muted font-bold uppercase tracking-widest flex items-center gap-2">
-                    <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> Consumer</span>
-                    <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-[#00ff88]" /> Prosumer</span>
-                    <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" /> Live Flow</span>
+                    {userRole !== 'consumer' && <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> Consumer Demand</span>}
+                    <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-[#00ff88]" /> {userRole === 'consumer' ? 'Supply Node' : 'Prosumer'}</span>
+                    {userRole !== 'consumer' && <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" /> Live Flow</span>}
                 </div>
             </div>
 
@@ -104,25 +127,30 @@ const SpatialMap: React.FC = () => {
                 ))}
 
                 {/* Flow Lines */}
-                {flows.map((flow: any) => (
+                {displayFlows.map((flow: any) => (
                     <g key={flow.id}>
-                        <line 
-                            x1={flow.from.x} y1={flow.from.y} 
-                            x2={flow.to.x} y2={flow.to.y} 
-                            stroke="rgba(0, 229, 255, 0.1)" 
-                            strokeWidth="1" 
-                            strokeDasharray="4 4"
+                        <motion.path
+                            d={`M ${flow.from.x} ${flow.from.y} Q ${(flow.from.x + flow.to.x) / 2} ${(flow.from.y + flow.to.y) / 2 - 20} ${flow.to.x} ${flow.to.y}`}
+                            stroke="url(#flowGradient)"
+                            strokeWidth="2"
+                            fill="none"
+                            initial={{ pathLength: 0, opacity: 0 }}
+                            animate={{ pathLength: 1, opacity: 0.3 }}
+                            transition={{ duration: 1.5 }}
                         />
                         <motion.circle
-                            r="3"
+                            r="2.5"
                             fill="#00e5ff"
                             filter="url(#nodeGlow)"
                             animate={{
-                                cx: [flow.from.x, flow.to.x],
-                                cy: [flow.from.y, flow.to.y],
+                                offsetDistance: ["0%", "100%"]
+                            }}
+                            style={{
+                                offsetPath: `path("M ${flow.from.x} ${flow.from.y} Q ${(flow.from.x + flow.to.x) / 2} ${(flow.from.y + flow.to.y) / 2 - 20} ${flow.to.x} ${flow.to.y}")`,
+                                position: 'absolute'
                             }}
                             transition={{
-                                duration: 2,
+                                duration: 2.5,
                                 repeat: Infinity,
                                 ease: "linear"
                             }}
@@ -131,7 +159,7 @@ const SpatialMap: React.FC = () => {
                 ))}
 
                 {/* Nodes */}
-                {nodes.map((node: any) => (
+                {displayNodes.map((node: any) => (
                     <g key={node.id} className="cursor-pointer group">
                         <motion.circle
                             cx={node.x}

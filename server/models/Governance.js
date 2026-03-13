@@ -4,6 +4,7 @@ const governanceSchema = new mongoose.Schema({
     isTradingPaused: { type: Boolean, default: false },
     priceCap: { type: Number, default: 25.00 },
     floorPrice: { type: Number, default: 1.00 },
+    isAiEnabled: { type: Boolean, default: true },
     globalDirective: {
         message: { type: String, default: "" },
         active: { type: Boolean, default: false },
