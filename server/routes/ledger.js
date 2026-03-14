@@ -11,7 +11,9 @@ router.get('/', async (req, res) => {
             { $limit: 100 },
             {
                 $addFields: {
-                    toObjectId: { $toObjectId: "$to" }
+                    toObjectId: {
+                        $convert: { input: "$to", to: "objectId", onError: null, onNull: null }
+                    }
                 }
             },
             {

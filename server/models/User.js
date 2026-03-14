@@ -17,7 +17,10 @@ const userSchema = new mongoose.Schema({
     isBrokerActive: { type: Boolean, default: false },
     pufIdentity: { type: String, unique: true, sparse: true }, // Hardware Hardware verification
     creditRank: { type: String, enum: ['standard', 'premium', 'governor'], default: 'standard' },
-    connectedProsumer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    connectedProsumer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    connectionRequestProsumer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    connectionRequestStatus: { type: String, enum: ['none', 'pending'], default: 'none' },
+    connectionRequestedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);

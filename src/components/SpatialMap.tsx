@@ -66,7 +66,7 @@ const SpatialMap: React.FC<SpatialMapProps> = ({ userRole = 'admin' }) => {
             // Consumer only sees supply nodes (Prosumers) and price, no other consumers
             n = nodes.filter((n: any) => n.role === 'prosumer').map((n: any, i: number) => ({
                 ...n,
-                username: `Supply Node ${i+1} (${(Math.random() * 5 + 10).toFixed(1)} ¢/kWh)` // Mock price
+                username: `Supply Node ${i + 1} (₹${(Math.random() * 2 + 6).toFixed(2)}/kWh)` // Mock INR price
             }));
         } else if (userRole === 'prosumer') {
             // Prosumer sees local cluster and anonymized buyer heatmap

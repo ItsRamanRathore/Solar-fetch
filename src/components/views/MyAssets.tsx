@@ -3,6 +3,7 @@ import { Card, Row, Col, Progress, Table, Tag, Switch, Space, Button } from 'ant
 import { ShieldCheck, Activity, Cpu, Terminal as TerminalIcon, RefreshCcw, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
+import { formatCurrencyINR, formatTimeIST } from '../../utils/indiaFormat';
 
 interface MyAssetsProps {
     simMode?: string;
@@ -17,7 +18,7 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
     // Simulated IoT Log Pulses
     useEffect(() => {
         const interval = setInterval(() => {
-            const timestamp = new Date().toLocaleTimeString();
+            const timestamp = formatTimeIST();
             const voltage = (230 + Math.random() * 5).toFixed(2);
             const current = (10 + Math.random() * 2).toFixed(2);
             const activePower = (parseFloat(voltage) * parseFloat(current) / 1000).toFixed(3);
@@ -180,8 +181,8 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
                                 </div>
                                 <div className="api-query-log custom-scrollbar">
                                     <div className="api-query-item">18:24:01 [AUTH] Smart_Fridge_v2 Querying Market Price...</div>
-                                    <div className="api-query-item">18:24:02 [GET] /v1/market/price {"->"} $0.11/kWh</div>
-                                    <div className="api-query-item">18:24:05 [POST] /v1/auto-buy Triggered (Set: $0.12)</div>
+                                    <div className="api-query-item">18:24:02 [GET] /v1/market/price {"->"} ₹6.90/kWh</div>
+                                    <div className="api-query-item">18:24:05 [POST] /v1/auto-buy Triggered (Set: ₹7.10)</div>
                                     <div className="api-query-item">18:24:10 [AUTH] Tesla_Wall_Gen4 Authenticated.</div>
                                     <div className="api-query-item">18:24:12 [GET] /v1/battery/state {"->"} 88% OK</div>
                                 </div>
@@ -311,7 +312,7 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
                             <div>
                                 <div className="flex justify-between items-end mb-1">
                                     <span className="text-xs text-slate-400">Total Income</span>
-                                    <span className="text-lg font-black text-[#00ff88]">$342.10</span>
+                                    <span className="text-lg font-black text-[#00ff88]">{formatCurrencyINR(342.10)}</span>
                                 </div>
                                 <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
                                     <div className="bg-[#00ff88] h-full w-[65%]" />
@@ -320,7 +321,7 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
                             <div>
                                 <div className="flex justify-between items-end mb-1">
                                     <span className="text-xs text-slate-400">Grid Savings</span>
-                                    <span className="text-lg font-black text-[#00e5ff]">$128.45</span>
+                                    <span className="text-lg font-black text-[#00e5ff]">{formatCurrencyINR(128.45)}</span>
                                 </div>
                                 <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
                                     <div className="bg-[#00e5ff] h-full w-[40%]" />
@@ -329,7 +330,7 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
                             <div className="p-3 bg-white/5 rounded-lg border border-white/5">
                                 <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-muted">
                                     <span>Avg. Sell Price</span>
-                                    <span className="text-white">$0.12/kWh</span>
+                                    <span className="text-white">₹7.10/kWh</span>
                                 </div>
                             </div>
                         </div>

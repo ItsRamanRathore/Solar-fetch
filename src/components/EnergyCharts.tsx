@@ -4,6 +4,7 @@ import { DualAxes } from '@ant-design/plots';
 import { useQuery } from '@tanstack/react-query';
 import { Battery, Zap, Info, ShieldCheck } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { formatTimeIST } from '../utils/indiaFormat';
 
 interface UsageData {
     timestamp: string;
@@ -42,7 +43,7 @@ const EnergyCharts: React.FC<EnergyChartsProps> = ({ simMode }) => {
             // Transform for AreaChart
             const formatted: ChartDataPoint[] = [];
             raw.forEach((d: UsageData) => {
-                const time = new Date(d.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                const time = formatTimeIST(d.timestamp);
                 formatted.push({ time, value: d.consumption, type: 'Today' });
                 formatted.push({ time, value: d.generation, type: 'Production' });
             });
@@ -85,7 +86,7 @@ const EnergyCharts: React.FC<EnergyChartsProps> = ({ simMode }) => {
                 scale: { color: { range: ['#00F5FF'] }, y: { min: 0 } },
                 style: { fillOpacity: 0.2, fill: 'l(90) 0:#00F5FF 1:rgba(0, 245, 255, 0.05)', lineDash: [4, 4], lineWidth: 2, stroke: '#00F5FF' },
                 axis: { 
-                    x: { title: 'Time (24h)', titleFill: '#ffffff80', grid: { line: { style: { stroke: 'rgba(255,255,255,0.05)' } } }, label: { style: { fill: '#ffffff80' } } }, 
+                    x: { title: 'Time (IST)', titleFill: '#ffffff80', grid: { line: { style: { stroke: 'rgba(255,255,255,0.05)' } } }, label: { style: { fill: '#ffffff80' } } }, 
                     y: { title: 'Consumption (kWh)', titleFill: '#ffffff80', label: { style: { fill: '#ffffff80' } }, grid: { line: { style: { stroke: 'rgba(255,255,255,0.05)' } } } } 
                 }
             },
@@ -201,8 +202,8 @@ const EnergyCharts: React.FC<EnergyChartsProps> = ({ simMode }) => {
                             <div className="text-[10px] font-medium text-slate-300">
                                 {isAiLocked ? "Autonomous trading logic disabled." : (
                                     <>
-                                        Buy: &lt; {settings.currency}0.09/kWh<br />
-                                        Sell: &gt; {settings.currency}0.14/kWh
+                                        Buy: &lt; {settings.currency}6.90/kWh<br />
+                                        Sell: &gt; {settings.currency}7.40/kWh
                                     </>
                                 )}
                             </div>

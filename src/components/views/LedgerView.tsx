@@ -4,6 +4,7 @@ import { Database, Search, ShieldCheck, Download, Box, Activity, Zap, Lock, Arro
 import { motion } from 'framer-motion';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { message as antMessage } from 'antd';
+import { formatTimeIST } from '../../utils/indiaFormat';
 
 interface LedgerViewProps {
     simMode?: string;
@@ -20,7 +21,7 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
             return data.map((tx: any) => ({
                 ...tx,
                 key: tx._id,
-                timestamp: new Date(tx.timestamp).toLocaleTimeString()
+                timestamp: formatTimeIST(tx.timestamp)
             }));
         }
     });

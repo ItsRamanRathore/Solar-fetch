@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Drawer, Badge, List } from 'antd';
-import { Bell, Zap, TrendingUp } from 'lucide-react';
+import { Bell, Zap, TrendingUp, Link, Link2Off, UserCheck, UserX } from 'lucide-react';
 import { useSocket } from '../contexts/SocketContext';
 import { motion } from 'framer-motion';
 
@@ -34,12 +34,67 @@ const NotificationDrawer: React.FC = () => {
             setNotifications(prev => [newNotif, ...prev].slice(0, 15));
         };
 
+        const handleConnectionUpdate = (data: any) => {
+            const msgMap: Record<string, { title: string; icon: React.ReactNode; message: string }> = {
+                requested: {
+                    title: 'Connection Request',
+                    icon: <Link size={14} className="text-yellow-400" />,
+                    message: `${data.consumerUsername} requested a link to ${data.prosumerUsername}`,
+                },
+                accepted: {
+                    title: 'P2P Link Established',
+                    icon: <Link size={14} className="text-[#00ff88]" />,
+                    message: `${data.prosumerUsername} accepted ${data.consumerUsername}'s connection`,
+                },
+                rejected: {
+                    title: 'Request Declined',
+                    icon: <Link2Off size={14} className="text-red-400" />,
+                    message: `${data.prosumerUsername} declined ${data.consumerUsername}'s request`,
+                },
+                disconnected: {
+                    title: 'P2P Link Dropped',
+                    icon: <Link2Off size={14} className="text-orange-400" />,
+                    message: `${data.consumerUsername} unlinked from ${data.prosumerUsername}`,
+                },
+            };
+            const entry = msgMap[data.type];
+            if (!entry) return;
+            setNotifications(prev => [{ id: Date.now(), ...entry, time: data.time }, ...prev].slice(0, 20));
+        };
+
+        const handleUserUpdate = (data: any) => {
+            const msgMap: Record<string, { title: string; icon: React.ReactNode; message: string }> = {
+                approved: {
+                    title: 'User Approved',
+                    icon: <UserCheck size={14} className="text-[#00ff88]" />,
+                    message: `A ${data.role || 'user'} account has been approved and is now active`,
+                },
+                suspended: {
+                    title: 'User Suspended',
+                    icon: <UserX size={14} className="text-red-400" />,
+                    message: `An account has been suspended by the grid administrator`,
+                },
+                registered: {
+                    title: 'New Registration',
+                    icon: <UserCheck size={14} className="text-cyan-400" />,
+                    message: `A new ${data.role || 'user'} registered and is pending approval`,
+                },
+            };
+            const entry = msgMap[data.type];
+            if (!entry) return;
+            setNotifications(prev => [{ id: Date.now(), ...entry, time: data.time }, ...prev].slice(0, 20));
+        };
+
         socket.on('market:newOrder', handleNewOrder);
         socket.on('market:orderComplete', handleOrderComplete);
+        socket.on('connections:updated', handleConnectionUpdate);
+        socket.on('users:updated', handleUserUpdate);
 
         return () => {
             socket.off('market:newOrder', handleNewOrder);
             socket.off('market:orderComplete', handleOrderComplete);
+            socket.off('connections:updated', handleConnectionUpdate);
+            socket.off('users:updated', handleUserUpdate);
         };
     }, [socket]);
 

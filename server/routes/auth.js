@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import User from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
+import { formatTimeIST } from '../utils/indiaFormat.js';
 
 const router = express.Router();
 
@@ -33,6 +34,16 @@ const createToken = (id) => {
     });
 };
 
+const emitSocketEvent = (req, event, payload = {}) => {
+    const io = req.app.get('io');
+    if (io) {
+        io.emit(event, {
+            ...payload,
+            time: formatTimeIST()
+        });
+    }
+};
+
 router.post('/register', async (req, res) => {
     try {
         const { username, email, password, role } = registerSchema.parse(req.body);
@@ -58,6 +69,13 @@ router.post('/register', async (req, res) => {
 
         const token = createToken(user._id);
         res.cookie('jwt', token, cookieOptions);
+
+        emitSocketEvent(req, 'users:updated', {
+            type: 'registered',
+            userId: user._id.toString(),
+            role: user.role,
+            status: user.status
+        });
 
         res.status(201).json({ user: { id: user._id, username: user.username, email: user.email, role: user.role, status: user.status } });
     } catch (err) {

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../contexts/SocketContext';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { formatTimeIST } from '../utils/indiaFormat';
 
 interface LiveBid {
     id: string;
@@ -30,7 +31,7 @@ const LiveBidding: React.FC = () => {
                     type: (tx.provenance === 'P2P_GRID_SETTLEMENT' ? 'Match' : 'Ask') as 'Bid' | 'Ask' | 'Match',
                     price: tx.price,
                     volume: tx.amount,
-                    time: new Date(tx.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+                    time: formatTimeIST(tx.timestamp)
                 }));
                 setBids(initialBids);
             } catch (err) {
@@ -52,7 +53,7 @@ const LiveBidding: React.FC = () => {
                         type,
                         price: 10 + Math.random() * 5,
                         volume: 10 + Math.random() * 100,
-                        time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+                        time: formatTimeIST()
                     },
                     ...prev
                 ].slice(0, 10));

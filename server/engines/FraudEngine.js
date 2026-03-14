@@ -18,7 +18,7 @@ export const detectFraudulentActivity = async (io) => {
             if (!user) continue;
 
             const maxCapa = user.batteryCapacity * 1.5; // Theoretical max burst
-            if (order.kwh > maxCapa) {
+            if (maxCapa > 0 && order.kwh > maxCapa) {
                 console.warn(`[FRAUD ALERT] User ${user.username} attempting to sell ${order.kwh}kWh with capacity ${user.batteryCapacity}kWh`);
                 
                 // Flag user in DB for visual identification

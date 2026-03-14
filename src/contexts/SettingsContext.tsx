@@ -29,6 +29,18 @@ const defaultSettings: Settings = {
     currency: '₹',
 };
 
+const normalizeIndianSettings = (candidate: Partial<Settings> | null | undefined): Settings => {
+    const merged: Settings = {
+        ...defaultSettings,
+        ...(candidate || {}),
+    };
+
+    merged.currency = '₹';
+    merged.locale = merged.locale?.startsWith('in-') ? merged.locale : 'in-south-1';
+
+    return merged;
+};
+
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const useSettings = () => {
@@ -40,7 +52,7 @@ export const useSettings = () => {
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [settings, setSettings] = useState<Settings>(() => {
         const saved = localStorage.getItem('solar_fetch_settings');
-        return saved ? JSON.parse(saved) : defaultSettings;
+        return saved ? normalizeIndianSettings(JSON.parse(saved)) : defaultSettings;
     });
 
     useEffect(() => {
@@ -51,7 +63,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, [settings]);
 
     const updateSettings = (updates: Partial<Settings>) => {
-        setSettings(prev => ({ ...prev, ...updates }));
+        setSettings(prev => normalizeIndianSettings({ ...prev, ...updates }));
     };
 
     return (

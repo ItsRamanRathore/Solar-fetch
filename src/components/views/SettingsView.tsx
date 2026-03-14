@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Row, Col, Switch, Select, Button, Slider, Input, message } from 'antd';
 import { Bell, Shield, Palette, Globe } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
+import { INDIA_STANDARD_LABEL } from '../../utils/indiaFormat';
 
 const SettingsView: React.FC = () => {
     const { settings, updateSettings } = useSettings();
@@ -138,17 +139,17 @@ const SettingsView: React.FC = () => {
                                     className="w-full glass-select"
                                     options={[
                                         { value: 'in-south-1', label: 'India (South-1)' },
-                                        { value: 'in-north-2', label: 'India (North-2)' },
-                                        { value: 'eu-west-1', label: 'Europe (West-1)' }
+                                        { value: 'in-north-2', label: 'India (North-2)' }
                                     ]}
                                 />
+                                <div className="text-[10px] text-muted uppercase mt-2">Timezone: {INDIA_STANDARD_LABEL}</div>
                             </div>
                             <div className="border-t border-white/5 pt-4">
                                 <div className="text-xs font-bold text-white mb-2">Currency Symbol</div>
                                 <Input 
-                                    value={settings.currency} 
-                                    onChange={(e) => updateSettings({ currency: e.target.value })}
-                                    className="glass-input !w-20" 
+                                    value="₹ (INR)"
+                                    disabled
+                                    className="glass-input !w-32" 
                                 />
                             </div>
                         </div>

@@ -5,8 +5,19 @@ import Governance from '../models/Governance.js';
 import Conflict from '../models/Conflict.js';
 import Transaction from '../models/Transaction.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { formatTimeIST, formatDateTimeIST } from '../utils/indiaFormat.js';
 
 const router = express.Router();
+
+const emitSocketEvent = (req, event, payload = {}) => {
+    const io = req.app.get('io');
+    if (io) {
+        io.emit(event, {
+            ...payload,
+            time: formatTimeIST()
+        });
+    }
+};
 
 router.use(requireAuth, requireAdmin);
 
@@ -28,6 +39,14 @@ router.put('/users/:id/approve', async (req, res, next) => {
 
         user.status = 'approved';
         await user.save();
+
+        emitSocketEvent(req, 'users:updated', {
+            type: 'approved',
+            userId: user._id.toString(),
+            role: user.role,
+            status: user.status
+        });
+
         res.json(user);
     } catch (err) {
         next(err);
@@ -42,6 +61,14 @@ router.put('/users/:id/suspend', async (req, res, next) => {
 
         user.status = 'suspended';
         await user.save();
+
+        emitSocketEvent(req, 'users:updated', {
+            type: 'suspended',
+            userId: user._id.toString(),
+            role: user.role,
+            status: user.status
+        });
+
         res.json(user);
     } catch (err) {
         next(err);
@@ -128,7 +155,7 @@ router.get('/ledger/export', async (req, res, next) => {
         const transactions = await Transaction.find().sort({ timestamp: -1 });
         let csv = 'Time,From,To,Amount,Price,Total,Status\n';
         transactions.forEach(tx => {
-            csv += `${tx.timestamp.toISOString()},${tx.from},${tx.to},${tx.amount},${tx.price},${tx.settlementTotal},${tx.status}\n`;
+            csv += `${formatDateTimeIST(tx.timestamp)},${tx.from},${tx.to},${tx.amount},${tx.price},${tx.settlementTotal},${tx.status}\n`;
         });
         res.header('Content-Type', 'text/csv');
         res.attachment('ledger-export.csv');

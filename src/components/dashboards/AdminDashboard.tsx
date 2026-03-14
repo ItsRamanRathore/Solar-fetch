@@ -81,12 +81,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
     // Listen for live alerts
     React.useEffect(() => {
         if (!socket) return;
-        socket.on('governance:fraud', () => {
+
+        const handleFraud = () => {
             message.error('INTEGRITY ALERT: New conflict detected in the grid cluster');
             refetchConflicts();
-        });
-        return () => { socket.off('governance:fraud'); };
-    }, [socket, refetchConflicts]);
+        };
+        const handleUserUpdate = () => {
+            queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+            queryClient.invalidateQueries({ queryKey: ['userStats'] });
+        };
+
+        socket.on('governance:fraud', handleFraud);
+        socket.on('users:updated', handleUserUpdate);
+
+        return () => {
+            socket.off('governance:fraud', handleFraud);
+            socket.off('users:updated', handleUserUpdate);
+        };
+    }, [socket, refetchConflicts, queryClient]);
 
     // Mutations
     const approveUser = useMutation({

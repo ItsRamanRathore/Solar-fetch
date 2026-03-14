@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
 import Governance from '../models/Governance.js';
 import { requireAuth } from '../middleware/auth.js';
+import { formatTimeIST } from '../utils/indiaFormat.js';
 
 const router = express.Router();
 
@@ -67,11 +68,98 @@ router.post('/orders', requireAuth, async (req, res, next) => {
                 type: type === 'buy' ? 'Bid' : 'Ask',
                 price,
                 volume: kwh,
-                time: new Date().toLocaleTimeString('en-GB', { hour12: false })
+                time: formatTimeIST()
             });
         }
 
         res.status(201).json(order);
+    } catch (err) {
+        next(err);
+    }
+});
+
+// Prosumer responds to a buy bid request
+router.post('/bids/:bidId/respond', requireAuth, async (req, res, next) => {
+    try {
+        if (req.user.role !== 'prosumer') {
+            return res.status(403).json({ error: 'Only prosumers can respond to bids' });
+        }
+        if (req.user.status !== 'approved') {
+            return res.status(403).json({ error: 'Only approved prosumers can respond to bids' });
+        }
+
+        const actionSchema = z.object({
+            action: z.enum(['accept', 'reject'])
+        });
+        const { action } = actionSchema.parse(req.body);
+
+        const bid = await Order.findOne({
+            _id: req.params.bidId,
+            type: 'buy',
+            status: { $in: ['PENDING', 'PARTIAL'] }
+        }).populate('maker', 'username');
+
+        if (!bid) {
+            return res.status(404).json({ error: 'Bid request not found or already resolved' });
+        }
+
+        if (action === 'reject') {
+            bid.status = 'CANCELLED';
+            await bid.save();
+
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('market:bidResponse', {
+                    type: 'rejected',
+                    bidId: bid._id.toString(),
+                    prosumerId: req.user._id.toString(),
+                    prosumerUsername: req.user.username,
+                    consumerUsername: bid.maker?.username,
+                    time: formatTimeIST()
+                });
+                io.emit('market:orderComplete', {
+                    txid: `REJ-${bid._id.toString().slice(-6)}`,
+                    price: bid.price,
+                    volume: bid.remainingKwh,
+                    time: formatTimeIST(),
+                    type: 'Rejected'
+                });
+            }
+
+            return res.json({ success: true, status: 'rejected', bid });
+        }
+
+        const matchedSell = await Order.create({
+            maker: req.user._id,
+            type: 'sell',
+            kwh: bid.remainingKwh,
+            remainingKwh: bid.remainingKwh,
+            price: bid.price,
+            status: 'PENDING'
+        });
+
+        await runMatchingEngine(req);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('market:bidResponse', {
+                type: 'accepted',
+                bidId: bid._id.toString(),
+                prosumerId: req.user._id.toString(),
+                prosumerUsername: req.user.username,
+                consumerUsername: bid.maker?.username,
+                sellOrderId: matchedSell._id.toString(),
+                time: formatTimeIST()
+            });
+            io.emit('market:newOrder', {
+                type: 'Ask',
+                price: matchedSell.price,
+                volume: matchedSell.kwh,
+                time: formatTimeIST()
+            });
+        }
+
+        return res.json({ success: true, status: 'accepted', sellOrder: matchedSell });
     } catch (err) {
         next(err);
     }
@@ -154,7 +242,7 @@ export async function runMatchingEngine(req) {
                     price: settlePrice,
                     volume: settleVolume,
                     greenHash: tx.greenHash, // Signal ESG Minting
-                    time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+                    time: formatTimeIST(),
                     type: 'Match'
                 });
             }

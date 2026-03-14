@@ -4,6 +4,7 @@ import { ShoppingBag, Zap, Plus, User, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSocket } from '../../contexts/SocketContext';
+import { formatCurrencyINR } from '../../utils/indiaFormat';
 
 interface MarketplaceProps {
     simMode?: string;
@@ -122,7 +123,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
             title: 'Price',
             dataIndex: 'price',
             key: 'price',
-            render: (price: number) => <span className="font-bold text-white">${price.toFixed(2)}</span>
+            render: (price: number) => <span className="font-bold text-white">{formatCurrencyINR(price)}</span>
         },
         {
             title: 'Status',
