@@ -34,6 +34,25 @@ router.post('/broker/toggle', requireAuth, async (req, res) => {
     }
 });
 
+// Persisted Auto-Accept Highest toggle for prosumers
+router.post('/broker/auto-accept', requireAuth, async (req, res) => {
+    try {
+        if (req.user.role !== 'prosumer') {
+            return res.status(403).json({ error: 'Only prosumers can configure auto-accept' });
+        }
+
+        const hasExplicitValue = typeof req.body?.enabled === 'boolean';
+        req.user.autoAcceptHighestEnabled = hasExplicitValue
+            ? req.body.enabled
+            : !req.user.autoAcceptHighestEnabled;
+
+        await req.user.save();
+        res.json({ autoAcceptHighestEnabled: req.user.autoAcceptHighestEnabled });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Update asset status
 router.put('/:id', requireAuth, async (req, res) => {
     try {

@@ -17,6 +17,7 @@ interface ProsumerDashboardProps {
         storedEnergy: number;
         batteryCapacity: number;
         isBrokerActive: boolean;
+        autoAcceptHighestEnabled?: boolean;
     };
 }
 
@@ -38,6 +39,7 @@ interface CurrentUser {
     storedEnergy?: number;
     batteryCapacity?: number;
     isBrokerActive?: boolean;
+    autoAcceptHighestEnabled?: boolean;
 }
 
 interface ProsumerStats {
@@ -118,7 +120,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
     const queryClient = useQueryClient();
     const { socket } = useSocket();
     const [brokerOverride, setBrokerOverride] = useState<boolean | null>(null);
-    const [autoAcceptHighestEnabled, setAutoAcceptHighestEnabled] = useState(false);
+    const [autoAcceptOverride, setAutoAcceptOverride] = useState<boolean | null>(null);
     const [localStoredEnergy, setLocalStoredEnergy] = useState<number | null>(null);
     const [batteryState, setBatteryState] = useState<string>('Idle');
 
@@ -167,6 +169,9 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
     const currentUser: CurrentUser = {
         ...(user || fetchedUser),
         isBrokerActive: brokerOverride !== null ? brokerOverride : (user?.isBrokerActive || fetchedUser?.isBrokerActive),
+        autoAcceptHighestEnabled: autoAcceptOverride !== null
+            ? autoAcceptOverride
+            : (user?.autoAcceptHighestEnabled ?? fetchedUser?.autoAcceptHighestEnabled ?? false),
     };
 
     const { data: stats } = useQuery<ProsumerStats>({
@@ -254,32 +259,6 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
             socket.off('market:orderComplete', handleMarketUpdate);
         };
     }, [socket, queryClient, currentUser?._id]);
-
-    // Auto-accept highest bid toggle - runs every 2 minutes when enabled
-    useEffect(() => {
-        if (!autoAcceptHighestEnabled || gov?.isAiEnabled === false) return;
-
-        const interval = setInterval(async () => {
-            try {
-                const res = await fetch('/api/market/bids/auto-accept-highest', {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    message.success(`Auto-accepted highest bid at ${settings.currency}${Number(data.highestBid?.price || 0).toFixed(2)}/kWh`, 2);
-                    queryClient.invalidateQueries({ queryKey: ['prosumerOrderBook'] });
-                    queryClient.invalidateQueries({ queryKey: ['ledger'] });
-                    queryClient.invalidateQueries({ queryKey: ['userStats'] });
-                }
-            } catch {
-                // Ignore transient network/no-bid conditions for periodic polling.
-            }
-        }, 120000);
-
-        return () => clearInterval(interval);
-    }, [autoAcceptHighestEnabled, gov?.isAiEnabled, queryClient, settings.currency]);
 
     const acceptConnectionMutation = useMutation({
         mutationFn: async (consumerId: string) => {
@@ -376,6 +355,31 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
         }
     });
 
+    const toggleAutoAcceptMutation = useMutation({
+        mutationFn: async (enabled: boolean) => {
+            const res = await fetch('/api/assets/broker/auto-accept', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to update auto-accept preference');
+            }
+            return data;
+        },
+        onSuccess: (data) => {
+            const enabled = Boolean(data.autoAcceptHighestEnabled);
+            setAutoAcceptOverride(enabled);
+            queryClient.invalidateQueries({ queryKey: ['user'] });
+            message.success(`Auto-Accept Highest ${enabled ? 'Enabled' : 'Disabled'}`);
+        },
+        onError: (error: Error) => {
+            message.error(error.message);
+        }
+    });
+
     const mySales = transactions && transactions.length > 0 && currentUser
         ? transactions.filter((tx: LedgerTransaction) => 
             tx.from === currentUser.username || 
@@ -442,6 +446,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
     }, [currentGen, currentCons, batteryCapacity, simMode, localStoredEnergy]);
 
     const isAiLocked = gov?.isAiEnabled === false;
+    const autoAcceptHighestEnabled = Boolean(currentUser?.autoAcceptHighestEnabled);
     const isBatteryMode = currentGen < currentCons || simMode !== 'standard';
     const pendingRequests = connections?.pendingRequests || [];
     const connectedConsumers = connections?.connectedConsumers || [];
@@ -781,12 +786,12 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                     <div>
                                         <div className="text-[10px] font-black text-white uppercase">Auto-Accept Highest</div>
                                         <div className="text-[8px] text-muted uppercase tracking-tight mt-0.5">
-                                            {isAiLocked ? 'Locked by Governor' : autoAcceptHighestEnabled ? (liveBuyBids.length > 0 ? 'Scanning every 2m' : 'Armed • waiting for bids') : 'Disabled'}
+                                                {isAiLocked ? 'Locked by Governor' : autoAcceptHighestEnabled ? (liveBuyBids.length > 0 ? 'Server scanning every 2m' : 'Armed • waiting for bids') : 'Disabled'}
                                         </div>
                                     </div>
                                     <button
-                                        disabled={isAiLocked}
-                                        onClick={() => setAutoAcceptHighestEnabled(!autoAcceptHighestEnabled)}
+                                        disabled={isAiLocked || toggleAutoAcceptMutation.isPending}
+                                        onClick={() => toggleAutoAcceptMutation.mutate(!autoAcceptHighestEnabled)}
                                         className={`relative w-12 h-6 rounded-full transition-all flex-shrink-0 ${isAiLocked ? 'bg-red-500/20 cursor-not-allowed opacity-50' : autoAcceptHighestEnabled ? 'bg-green-500' : 'bg-white/10'}`}
                                     >
                                         <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoAcceptHighestEnabled ? 'left-7' : 'left-1'}`} />

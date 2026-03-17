@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth.js';
 import gridRoutes from './routes/grid.js';
 import assetsRoutes from './routes/assets.js';
-import marketRoutes from './routes/market.js';
+import marketRoutes, { runAutoAcceptForEnabledProsumers } from './routes/market.js';
 import ledgerRoutes from './routes/ledger.js';
 import adminRoutes from './routes/admin.js';
 import userRoutes from './routes/users.js';
@@ -161,6 +161,15 @@ if (!isVercel) {
         }
     }, 3000);
 
+    // Persistent auto-accept scanner (works even when dashboards are closed)
+    setInterval(async () => {
+        try {
+            await runAutoAcceptForEnabledProsumers(io);
+        } catch (error) {
+            console.error('[AutoAcceptEngine Error]:', error);
+        }
+    }, 120000);
+
     const PORT = process.env.PORT || 5000;
     httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
@@ -244,6 +253,32 @@ app.use('/api', async (req, res, next) => {
     } catch (err) {
         console.error('API DB connection wait failed:', err.message);
         res.status(503).json({ error: 'Database initializing or unavailable' });
+    }
+});
+
+// Vercel Cron endpoint for persistent auto-accept execution in serverless mode.
+app.get('/api/cron/auto-accept', async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = req.get('authorization') || '';
+    const isAuthorized = cronSecret
+        ? authHeader === `Bearer ${cronSecret}`
+        : !isProduction;
+
+    if (!isAuthorized) {
+        return res.status(401).json({ error: 'Unauthorized cron request' });
+    }
+
+    try {
+        const summary = await runAutoAcceptForEnabledProsumers(app.get('io'));
+        return res.json({
+            ok: true,
+            mode: isVercel ? 'vercel-serverless-cron' : 'local-manual-cron',
+            timestamp: new Date().toISOString(),
+            ...summary
+        });
+    } catch (error) {
+        console.error('[Cron AutoAccept Error]:', error);
+        return res.status(500).json({ error: 'Auto-accept cron run failed' });
     }
 });
 

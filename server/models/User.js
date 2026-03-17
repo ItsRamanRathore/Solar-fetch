@@ -15,6 +15,7 @@ const userSchema = new mongoose.Schema({
     batteryCapacity: { type: Number, default: 50.0 }, // Max Storage in kWh
     storedEnergy: { type: Number, default: 10.0 },   // Current Storage in kWh
     isBrokerActive: { type: Boolean, default: false },
+    autoAcceptHighestEnabled: { type: Boolean, default: false },
     pufIdentity: { type: String, unique: true, sparse: true }, // Hardware Hardware verification
     creditRank: { type: String, enum: ['standard', 'premium', 'governor'], default: 'standard' },
     connectedProsumer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

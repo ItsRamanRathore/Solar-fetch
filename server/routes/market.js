@@ -96,7 +96,7 @@ router.post('/orders', requireAuth, async (req, res, next) => {
     }
 });
 
-async function settleMatchedPair({ sellOrder, buyOrder, req }) {
+async function settleMatchedPair({ sellOrder, buyOrder, req, io }) {
     const sellerUser = sellOrder?.maker?.username
         ? sellOrder.maker
         : await User.findById(sellOrder.maker);
@@ -152,9 +152,9 @@ async function settleMatchedPair({ sellOrder, buyOrder, req }) {
     await User.findByIdAndUpdate(sellerUser._id, { $inc: { credits: (settleVolume * settlePrice) } });
     await User.findByIdAndUpdate(buyerUser._id, { $inc: { credits: -(settleVolume * settlePrice) } });
 
-    const io = req?.app?.get('io');
-    if (io) {
-        io.emit('market:bidResponse', {
+    const emitter = io || req?.app?.get('io');
+    if (emitter) {
+        emitter.emit('market:bidResponse', {
             type: 'accepted',
             bidId: buyOrder._id.toString(),
             consumerId: buyerUser._id.toString(),
@@ -167,7 +167,7 @@ async function settleMatchedPair({ sellOrder, buyOrder, req }) {
             time: formatTimeIST()
         });
 
-        io.emit('market:orderComplete', {
+        emitter.emit('market:orderComplete', {
             txid: tx.txid,
             price: settlePrice,
             volume: settleVolume,
@@ -188,6 +188,116 @@ async function settleMatchedPair({ sellOrder, buyOrder, req }) {
     };
 }
 
+async function processAutoAcceptHighest({ prosumer, io }) {
+    const gov = await Governance.findOne();
+    if (gov && (!gov.isAiEnabled || gov.isTradingPaused)) {
+        return { ok: false, reason: 'LOCKED' };
+    }
+
+    const energyCycleStart = new Date(Date.now() - 30 * 60 * 1000);
+
+    const pendingBids = await Order.find({
+        type: 'buy',
+        status: { $in: ['PENDING', 'PARTIAL'] },
+        createdAt: { $gte: energyCycleStart }
+    }).populate('maker', 'username trustScore').sort({ price: -1, createdAt: 1 });
+
+    if (pendingBids.length === 0) {
+        return { ok: false, reason: 'NO_PENDING_BIDS' };
+    }
+
+    const highestBid = pendingBids[0];
+
+    const liveHighestBid = await Order.findOne({
+        _id: highestBid._id,
+        type: 'buy',
+        status: { $in: ['PENDING', 'PARTIAL'] }
+    }).populate('maker', 'username trustScore');
+
+    if (!liveHighestBid) {
+        return { ok: false, reason: 'STALE_BID' };
+    }
+
+    const matchedSell = await Order.create({
+        maker: prosumer._id,
+        type: 'sell',
+        kwh: liveHighestBid.remainingKwh,
+        remainingKwh: liveHighestBid.remainingKwh,
+        price: liveHighestBid.price,
+        status: 'PENDING',
+        aiAutomated: true
+    });
+
+    const settlement = await settleMatchedPair({
+        sellOrder: matchedSell,
+        buyOrder: liveHighestBid,
+        io
+    });
+
+    const rejectedBids = pendingBids.filter(
+        bid => bid._id.toString() !== liveHighestBid._id.toString()
+    );
+    const rejectedBidIds = rejectedBids.map(bid => bid._id);
+
+    if (rejectedBidIds.length > 0) {
+        await Order.updateMany(
+            { _id: { $in: rejectedBidIds }, status: { $in: ['PENDING', 'PARTIAL'] } },
+            { status: 'CANCELLED' }
+        );
+    }
+
+    if (io) {
+        rejectedBids.forEach((bid) => {
+            io.emit('market:bidResponse', {
+                type: 'rejected',
+                bidId: bid._id.toString(),
+                consumerId: String(bid.maker?._id || ''),
+                consumerUsername: bid.maker?.username,
+                prosumerId: prosumer._id.toString(),
+                prosumerUsername: prosumer.username,
+                reason: 'OUTBID_IN_AI_CYCLE',
+                time: formatTimeIST()
+            });
+        });
+
+        io.emit('market:aiBrokerAction', {
+            prosumerId: prosumer._id.toString(),
+            prosumerUsername: prosumer.username,
+            action: 'accepted_highest_bid',
+            highestBid: {
+                bidId: liveHighestBid._id.toString(),
+                price: settlement.settlePrice,
+                volume: settlement.settleVolume,
+                bidderUsername: settlement.buyerUser.username
+            },
+            rejectedBidCount: rejectedBidIds.length,
+            sellOrderId: matchedSell._id.toString(),
+            time: formatTimeIST(),
+            energyCycleDuration: '30min'
+        });
+
+        io.emit('market:newOrder', {
+            type: 'Ask (AI-Auto)',
+            price: matchedSell.price,
+            volume: matchedSell.kwh,
+            time: formatTimeIST()
+        });
+    }
+
+    return {
+        ok: true,
+        highestBid: {
+            _id: liveHighestBid._id,
+            price: settlement.settlePrice,
+            volume: settlement.settleVolume,
+            bidderUsername: settlement.buyerUser.username
+        },
+        sellOrder: matchedSell,
+        rejectedBidCount: rejectedBidIds.length,
+        message: `AI Broker accepted highest bid at ₹${settlement.settlePrice.toFixed(2)}/kWh from ${settlement.buyerUser.username}`
+    };
+}
+
 // AI Broker: Auto-accept highest bid in current energy cycle
 // Energy cycle = bids created within last 30 minutes
 router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => {
@@ -199,117 +309,31 @@ router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => 
             return res.status(403).json({ error: 'Only approved prosumers can auto-accept bids' });
         }
 
-        // Energy cycle: bids created in last 30 minutes
-        const energyCycleStart = new Date(Date.now() - 30 * 60 * 1000);
-        
-        // Find all pending buy orders (bids) created in current cycle
-        const pendingBids = await Order.find({
-            type: 'buy',
-            status: { $in: ['PENDING', 'PARTIAL'] },
-            createdAt: { $gte: energyCycleStart }
-        }).populate('maker', 'username trustScore').sort({ price: -1, createdAt: 1 });
-
-        if (pendingBids.length === 0) {
-            return res.status(404).json({ error: 'No pending bids in current energy cycle' });
-        }
-
-        // Highest bid wins, tie breaks by oldest createdAt due to sort order.
-        const highestBid = pendingBids[0];
-
-        // Re-check selected bid is still open before settling.
-        const liveHighestBid = await Order.findOne({
-            _id: highestBid._id,
-            type: 'buy',
-            status: { $in: ['PENDING', 'PARTIAL'] }
-        }).populate('maker', 'username trustScore');
-
-        if (!liveHighestBid) {
-            return res.status(409).json({ error: 'Highest bid was already resolved. Retry next cycle.' });
-        }
-
-        // Accept the selected highest bid by creating a sell order.
-        const matchedSell = await Order.create({
-            maker: req.user._id,
-            type: 'sell',
-            kwh: liveHighestBid.remainingKwh,
-            remainingKwh: liveHighestBid.remainingKwh,
-            price: liveHighestBid.price,
-            status: 'PENDING',
-            aiAutomated: true
+        const result = await processAutoAcceptHighest({
+            prosumer: req.user,
+            io: req.app.get('io')
         });
 
-        // Force settlement against the selected highest bid to keep ledger identities accurate.
-        const settlement = await settleMatchedPair({
-            sellOrder: matchedSell,
-            buyOrder: liveHighestBid,
-            req
-        });
-
-        // Reject all other bids in the same cycle.
-        const rejectedBids = pendingBids.filter(
-            bid => bid._id.toString() !== liveHighestBid._id.toString()
-        );
-        const rejectedBidIds = rejectedBids.map(bid => bid._id);
-
-        if (rejectedBidIds.length > 0) {
-            await Order.updateMany(
-                { _id: { $in: rejectedBidIds }, status: { $in: ['PENDING', 'PARTIAL'] } },
-                { status: 'CANCELLED' }
-            );
-        }
-
-        // Broadcast AI broker action
-        const io = req.app.get('io');
-        if (io) {
-            rejectedBids.forEach((bid) => {
-                io.emit('market:bidResponse', {
-                    type: 'rejected',
-                    bidId: bid._id.toString(),
-                    consumerId: String(bid.maker?._id || ''),
-                    consumerUsername: bid.maker?.username,
-                    prosumerId: req.user._id.toString(),
-                    prosumerUsername: req.user.username,
-                    reason: 'OUTBID_IN_AI_CYCLE',
-                    time: formatTimeIST()
-                });
-            });
-
-            io.emit('market:aiBrokerAction', {
-                prosumerId: req.user._id.toString(),
-                prosumerUsername: req.user.username,
-                action: 'accepted_highest_bid',
-                highestBid: {
-                    bidId: liveHighestBid._id.toString(),
-                    price: settlement.settlePrice,
-                    volume: settlement.settleVolume,
-                    bidderUsername: settlement.buyerUser.username
-                },
-                rejectedBidCount: rejectedBidIds.length,
-                sellOrderId: matchedSell._id.toString(),
-                time: formatTimeIST(),
-                energyCycleDuration: '30min'
-            });
-            
-            io.emit('market:newOrder', {
-                type: 'Ask (AI-Auto)',
-                price: matchedSell.price,
-                volume: matchedSell.kwh,
-                time: formatTimeIST()
-            });
+        if (!result.ok) {
+            if (result.reason === 'NO_PENDING_BIDS') {
+                return res.status(404).json({ error: 'No pending bids in current energy cycle' });
+            }
+            if (result.reason === 'STALE_BID') {
+                return res.status(409).json({ error: 'Highest bid was already resolved. Retry next cycle.' });
+            }
+            if (result.reason === 'LOCKED') {
+                return res.status(403).json({ error: 'Auto-accept is locked by current governance state' });
+            }
+            return res.status(500).json({ error: 'Auto-accept could not be completed' });
         }
 
         return res.json({
             success: true,
             status: 'auto_accepted',
-            highestBid: {
-                _id: liveHighestBid._id,
-                price: settlement.settlePrice,
-                volume: settlement.settleVolume,
-                bidderUsername: settlement.buyerUser.username
-            },
-            sellOrder: matchedSell,
-            rejectedBidCount: rejectedBidIds.length,
-            message: `AI Broker accepted highest bid at ₹${settlement.settlePrice.toFixed(2)}/kWh from ${settlement.buyerUser.username}`
+            highestBid: result.highestBid,
+            sellOrder: result.sellOrder,
+            rejectedBidCount: result.rejectedBidCount,
+            message: result.message
         });
     } catch (err) {
         next(err);
@@ -434,6 +458,50 @@ export async function runMatchingEngine(req) {
             });
         }
     }
+}
+
+export async function runAutoAcceptForEnabledProsumers(io) {
+    const gov = await Governance.findOne();
+    if (gov && (!gov.isAiEnabled || gov.isTradingPaused)) {
+        return {
+            scanned: 0,
+            accepted: 0,
+            noPending: 0,
+            stale: 0,
+            locked: 1,
+            errors: 0
+        };
+    }
+
+    const enabledProsumers = await User.find({
+        role: 'prosumer',
+        status: 'approved',
+        autoAcceptHighestEnabled: true
+    }).select('_id username role status autoAcceptHighestEnabled');
+
+    const summary = {
+        scanned: enabledProsumers.length,
+        accepted: 0,
+        noPending: 0,
+        stale: 0,
+        locked: 0,
+        errors: 0
+    };
+
+    for (const prosumer of enabledProsumers) {
+        try {
+            const result = await processAutoAcceptHighest({ prosumer, io });
+            if (result?.ok) summary.accepted += 1;
+            else if (result?.reason === 'NO_PENDING_BIDS') summary.noPending += 1;
+            else if (result?.reason === 'STALE_BID') summary.stale += 1;
+            else if (result?.reason === 'LOCKED') summary.locked += 1;
+        } catch (error) {
+            console.error(`[AutoAccept Error] ${prosumer.username}:`, error.message);
+            summary.errors += 1;
+        }
+    }
+
+    return summary;
 }
 
 // Demo data seeder for market
