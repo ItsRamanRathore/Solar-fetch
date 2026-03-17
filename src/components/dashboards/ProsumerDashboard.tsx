@@ -118,6 +118,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
     const queryClient = useQueryClient();
     const { socket } = useSocket();
     const [brokerOverride, setBrokerOverride] = useState<boolean | null>(null);
+    const [autoAcceptHighestEnabled, setAutoAcceptHighestEnabled] = useState(false);
     const [localStoredEnergy, setLocalStoredEnergy] = useState<number | null>(null);
     const [batteryState, setBatteryState] = useState<string>('Idle');
 
@@ -253,6 +254,32 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
             socket.off('market:orderComplete', handleMarketUpdate);
         };
     }, [socket, queryClient, currentUser?._id]);
+
+    // Auto-accept highest bid toggle - runs every 2 minutes when enabled
+    useEffect(() => {
+        if (!autoAcceptHighestEnabled || gov?.isAiEnabled === false) return;
+
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch('/api/market/bids/auto-accept-highest', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    message.success(`Auto-accepted highest bid at ${settings.currency}${Number(data.highestBid?.price || 0).toFixed(2)}/kWh`, 2);
+                    queryClient.invalidateQueries({ queryKey: ['prosumerOrderBook'] });
+                    queryClient.invalidateQueries({ queryKey: ['ledger'] });
+                    queryClient.invalidateQueries({ queryKey: ['userStats'] });
+                }
+            } catch {
+                // Ignore transient network/no-bid conditions for periodic polling.
+            }
+        }, 120000);
+
+        return () => clearInterval(interval);
+    }, [autoAcceptHighestEnabled, gov?.isAiEnabled, queryClient, settings.currency]);
 
     const acceptConnectionMutation = useMutation({
         mutationFn: async (consumerId: string) => {
@@ -746,8 +773,27 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                 </h3>
                                 <p className="text-[10px] text-muted uppercase tracking-widest mt-1">Realtime consumer buy orders entering the market book</p>
                             </div>
-                            <div className="px-4 py-2 rounded border border-[#00e5ff]/40 bg-[#00e5ff]/10 text-[#00e5ff] text-[10px] font-black uppercase tracking-widest">
-                                Active Bids: {liveBuyBids.length}
+                            <div className="flex items-center gap-2">
+                                <div className="px-4 py-2 rounded border border-[#00e5ff]/40 bg-[#00e5ff]/10 text-[#00e5ff] text-[10px] font-black uppercase tracking-widest">
+                                    Active Bids: {liveBuyBids.length}
+                                </div>
+                                {liveBuyBids.length > 0 && (
+                                    <div className={`px-4 py-2 rounded-lg flex items-center justify-between gap-3 border transition-all ${isAiLocked ? 'bg-red-500/10 border-red-500/20' : autoAcceptHighestEnabled ? 'bg-green-500/20 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
+                                        <div>
+                                            <div className="text-[10px] font-black text-white uppercase">Auto-Accept Highest</div>
+                                            <div className="text-[8px] text-muted uppercase tracking-tight mt-0.5">
+                                                {isAiLocked ? 'Locked by Governor' : autoAcceptHighestEnabled ? 'Scanning every 2m' : 'Disabled'}
+                                            </div>
+                                        </div>
+                                        <button
+                                            disabled={isAiLocked || liveBuyBids.length < 2}
+                                            onClick={() => setAutoAcceptHighestEnabled(!autoAcceptHighestEnabled)}
+                                            className={`relative w-12 h-6 rounded-full transition-all flex-shrink-0 ${isAiLocked ? 'bg-red-500/20 cursor-not-allowed opacity-50' : autoAcceptHighestEnabled ? 'bg-green-500' : 'bg-white/10'}`}
+                                        >
+                                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoAcceptHighestEnabled ? 'left-7' : 'left-1'}`} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

@@ -197,6 +197,46 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
         refetchInterval: 5000,
     });
 
+    // ML Prediction Queries
+    interface PricePrediction {
+        nextHourPrice: number;
+        currentPrice: number;
+        trend: string;
+        confidence: number;
+        priceHistory: number[];
+    }
+
+    interface DemandForecast {
+        nextHourDemand: number;
+        demand2h: number;
+        demand3h: number;
+        pattern: string;
+        recommendation: string;
+        confidence: number;
+    }
+
+    const { data: pricePrediction } = useQuery<PricePrediction>({
+        queryKey: ['predictions:price'],
+        queryFn: async () => {
+            const res = await fetch('/api/predictions/price');
+            if (!res.ok) throw new Error('Failed to fetch price prediction');
+            return res.json();
+        },
+        refetchInterval: 30000,
+        gcTime: 60000,
+    });
+
+    const { data: demandForecast } = useQuery<DemandForecast>({
+        queryKey: ['predictions:demand'],
+        queryFn: async () => {
+            const res = await fetch('/api/predictions/demand', { credentials: 'include' });
+            if (!res.ok) throw new Error('Failed to fetch demand forecast');
+            return res.json();
+        },
+        refetchInterval: 30000,
+        gcTime: 60000,
+    });
+
     const isAiLocked = gov?.isAiEnabled === false;
     const currentProsumers = (prosumers || []).filter((node: ProsumerNode) => node.role === 'prosumer');
     const surgeMultiplier = isGridFail ? 1.5 : isSunset ? 1.35 : 1;
@@ -357,7 +397,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
     const connectionRequestStatus = connectionState?.connectionRequestStatus || stats?.connectionRequestStatus || 'none';
     const nextHour = (currentTime + 1) % 24;
     const isEvening = (nextHour >= 18 && nextHour <= 22) || isSunset;
-    const predictedLoad = isGridFail ? 15.8 : isEvening ? 12.5 : 4.2;
+    // Use ML prediction or fallback to rule-based estimate
+    const predictedLoad = demandForecast?.nextHourDemand ?? (isGridFail ? 15.8 : isEvening ? 12.5 : 4.2);
     const liveDemand = chartData[chartData.length - 1]?.consumption || 0;
     const activeSellerCount = sells.length;
     const availableSupply = sells.reduce((total: number, sell: MarketOrder) => total + (sell.remainingKwh || 0), 0);
@@ -387,24 +428,54 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
     const preferredProsumer = selectedProsumer || pendingProsumer || connectedProsumer || null;
     const preferredOffer = preferredProsumer?.username ? offerByUsername.get(preferredProsumer.username) : null;
     const hasPendingConnection = connectionRequestStatus === 'pending';
-    const recommendationTitle = isAiLocked
+    
+    // AI-Powered Recommendation
+    const aiDemandPattern = demandForecast?.pattern || 'unknown';
+    const predictedPriceTrend = pricePrediction?.trend || 'stable';
+    
+    let recommendationTitle = isAiLocked
         ? 'Governor lock active'
         : isGridFail
         ? 'Emergency conservation'
         : isEvening
         ? 'Peak-response advised'
         : 'Baseload purchase window';
-    const recommendationBody = isAiLocked
+    
+    // Override with AI insights if available
+    if (!isAiLocked && demandForecast?.nextHourDemand !== undefined) {
+        if (predictedPriceTrend === 'rising') {
+            recommendationTitle = 'ML Alert: Buy NOW';
+        } else if (predictedPriceTrend === 'falling') {
+            recommendationTitle = 'ML Alert: Hold/Sell';
+        } else if (aiDemandPattern === 'peak') {
+            recommendationTitle = 'Peak Demand Expected';
+        }
+    }
+    
+    let recommendationBody = isAiLocked
         ? 'AI strategist features are suspended by the grid governor. Manual bidding stays online, but automated optimization is constrained.'
         : isGridFail
         ? `Non-essential circuits should remain offline. Shift discretionary loads now to preserve ${settings.currency} savings and resilience.`
         : isEvening
         ? 'Neighborhood demand is climbing into the evening peak. Pin a trusted prosumer and lock pricing before asks continue to rise.'
         : 'Grid load is stable. This is the lowest-friction window for a baseline buy order before the next demand ramp.';
+    
+    // Add AI-powered insights
+    if (!isAiLocked && demandForecast?.recommendation) {
+        recommendationBody = demandForecast.recommendation;
+        if (pricePrediction?.nextHourPrice) {
+            recommendationBody += ` Next-hour price forecast: ${settings.currency}${pricePrediction.nextHourPrice.toFixed(2)}/kWh (${predictedPriceTrend})`;
+        }
+    }
+    
     const recommendationTone = isAiLocked
         ? 'text-red-400'
         : isGridFail
         ? 'text-orange-400'
+        : predictedPriceTrend === 'rising'
+        ? 'text-red-400'
+        : predictedPriceTrend === 'falling'
+        ? 'text-green-400'
         : isEvening
         ? 'text-yellow-400'
         : 'text-cyan-400';

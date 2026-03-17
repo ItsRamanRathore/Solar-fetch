@@ -14,6 +14,7 @@ import marketRoutes from './routes/market.js';
 import ledgerRoutes from './routes/ledger.js';
 import adminRoutes from './routes/admin.js';
 import userRoutes from './routes/users.js';
+import predictionsRoutes from './routes/predictions.js';
 import { runArbitrageLogic } from './engines/ArbitrageEngine.js';
 import { detectFraudulentActivity } from './engines/FraudEngine.js';
 
@@ -253,6 +254,7 @@ app.use('/api/market', marketRoutes);
 app.use('/api/ledger', ledgerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/predictions', predictionsRoutes);
 
 app.get('/api/health', (req, res) => {
     res.json({ 

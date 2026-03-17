@@ -78,6 +78,107 @@ router.post('/orders', requireAuth, async (req, res, next) => {
     }
 });
 
+// AI Broker: Auto-accept highest bid in current energy cycle
+// Energy cycle = bids created within last 30 minutes
+router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => {
+    try {
+        if (req.user.role !== 'prosumer') {
+            return res.status(403).json({ error: 'Only prosumers can auto-accept bids' });
+        }
+        if (req.user.status !== 'approved') {
+            return res.status(403).json({ error: 'Only approved prosumers can auto-accept bids' });
+        }
+
+        // Energy cycle: bids created in last 30 minutes
+        const energyCycleStart = new Date(Date.now() - 30 * 60 * 1000);
+        
+        // Find all pending buy orders (bids) created in current cycle
+        const pendingBids = await Order.find({
+            type: 'buy',
+            status: { $in: ['PENDING', 'PARTIAL'] },
+            createdAt: { $gte: energyCycleStart }
+        }).populate('maker', 'username trustScore');
+
+        if (pendingBids.length === 0) {
+            return res.status(404).json({ error: 'No pending bids in current energy cycle' });
+        }
+
+        // Find highest bid by price
+        const highestBid = pendingBids.reduce((max, bid) => 
+            (bid.price > max.price) ? bid : max
+        );
+
+        // Accept the highest bid by creating a sell order
+        const matchedSell = await Order.create({
+            maker: req.user._id,
+            type: 'sell',
+            kwh: highestBid.remainingKwh,
+            remainingKwh: highestBid.remainingKwh,
+            price: highestBid.price,
+            status: 'PENDING',
+            aiAutomated: true
+        });
+
+        // Run matching engine to settle the order
+        await runMatchingEngine(req);
+
+        // Reject all other bids in the cycle
+        const rejectedBidIds = pendingBids
+            .filter(bid => bid._id.toString() !== highestBid._id.toString())
+            .map(bid => bid._id);
+
+        if (rejectedBidIds.length > 0) {
+            await Order.updateMany(
+                { _id: { $in: rejectedBidIds } },
+                { status: 'CANCELLED' }
+            );
+        }
+
+        // Broadcast AI broker action
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('market:aiBrokerAction', {
+                prosumerId: req.user._id.toString(),
+                prosumerUsername: req.user.username,
+                action: 'accepted_highest_bid',
+                highestBid: {
+                    bidId: highestBid._id.toString(),
+                    price: highestBid.price,
+                    volume: highestBid.remainingKwh,
+                    bidderUsername: highestBid.maker?.username
+                },
+                rejectedBidCount: rejectedBidIds.length,
+                sellOrderId: matchedSell._id.toString(),
+                time: formatTimeIST(),
+                energyCycleDuration: '30min'
+            });
+            
+            io.emit('market:newOrder', {
+                type: 'Ask (AI-Auto)',
+                price: matchedSell.price,
+                volume: matchedSell.kwh,
+                time: formatTimeIST()
+            });
+        }
+
+        return res.json({
+            success: true,
+            status: 'auto_accepted',
+            highestBid: {
+                _id: highestBid._id,
+                price: highestBid.price,
+                volume: highestBid.remainingKwh,
+                bidderUsername: highestBid.maker?.username
+            },
+            sellOrder: matchedSell,
+            rejectedBidCount: rejectedBidIds.length,
+            message: `AI Broker accepted highest bid at ₹${highestBid.price.toFixed(2)}/kWh from ${highestBid.maker?.username}`
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
 // Prosumer responds to a buy bid request
 router.post('/bids/:bidId/respond', requireAuth, async (req, res, next) => {
     try {
