@@ -76,6 +76,13 @@ router.post('/orders', requireAuth, async (req, res, next) => {
         });
         await order.save();
 
+        // On hobby/serverless plans, this keeps auto-accept responsive even without frequent native cron.
+        if (type === 'buy') {
+            runAutoAcceptForEnabledProsumers(req.app.get('io')).catch((error) => {
+                console.error('[AutoAccept OnBuy Error]:', error.message);
+            });
+        }
+
         // Trigger basic matching engine asynchronously
         runMatchingEngine(req).catch(console.error);
 
