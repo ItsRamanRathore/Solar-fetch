@@ -777,23 +777,21 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                 <div className="px-4 py-2 rounded border border-[#00e5ff]/40 bg-[#00e5ff]/10 text-[#00e5ff] text-[10px] font-black uppercase tracking-widest">
                                     Active Bids: {liveBuyBids.length}
                                 </div>
-                                {liveBuyBids.length > 0 && (
-                                    <div className={`px-4 py-2 rounded-lg flex items-center justify-between gap-3 border transition-all ${isAiLocked ? 'bg-red-500/10 border-red-500/20' : autoAcceptHighestEnabled ? 'bg-green-500/20 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
-                                        <div>
-                                            <div className="text-[10px] font-black text-white uppercase">Auto-Accept Highest</div>
-                                            <div className="text-[8px] text-muted uppercase tracking-tight mt-0.5">
-                                                {isAiLocked ? 'Locked by Governor' : autoAcceptHighestEnabled ? 'Scanning every 2m' : 'Disabled'}
-                                            </div>
+                                <div className={`px-4 py-2 rounded-lg flex items-center justify-between gap-3 border transition-all ${isAiLocked ? 'bg-red-500/10 border-red-500/20' : autoAcceptHighestEnabled ? 'bg-green-500/20 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
+                                    <div>
+                                        <div className="text-[10px] font-black text-white uppercase">Auto-Accept Highest</div>
+                                        <div className="text-[8px] text-muted uppercase tracking-tight mt-0.5">
+                                            {isAiLocked ? 'Locked by Governor' : autoAcceptHighestEnabled ? (liveBuyBids.length > 0 ? 'Scanning every 2m' : 'Armed • waiting for bids') : 'Disabled'}
                                         </div>
-                                        <button
-                                            disabled={isAiLocked || liveBuyBids.length < 2}
-                                            onClick={() => setAutoAcceptHighestEnabled(!autoAcceptHighestEnabled)}
-                                            className={`relative w-12 h-6 rounded-full transition-all flex-shrink-0 ${isAiLocked ? 'bg-red-500/20 cursor-not-allowed opacity-50' : autoAcceptHighestEnabled ? 'bg-green-500' : 'bg-white/10'}`}
-                                        >
-                                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoAcceptHighestEnabled ? 'left-7' : 'left-1'}`} />
-                                        </button>
                                     </div>
-                                )}
+                                    <button
+                                        disabled={isAiLocked}
+                                        onClick={() => setAutoAcceptHighestEnabled(!autoAcceptHighestEnabled)}
+                                        className={`relative w-12 h-6 rounded-full transition-all flex-shrink-0 ${isAiLocked ? 'bg-red-500/20 cursor-not-allowed opacity-50' : autoAcceptHighestEnabled ? 'bg-green-500' : 'bg-white/10'}`}
+                                    >
+                                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${autoAcceptHighestEnabled ? 'left-7' : 'left-1'}`} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
