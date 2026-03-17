@@ -10,25 +10,6 @@ import { formatTimeIST } from '../utils/indiaFormat.js';
 
 const router = express.Router();
 
-// Keep bids visible for a short period before AI settlement so highest-bid selection is meaningful.
-const AUTO_ACCEPT_COLLECTION_WINDOW_MS = Number(process.env.AUTO_ACCEPT_COLLECTION_WINDOW_MS || 120_000);
-const AUTO_ACCEPT_GLOBAL_COOLDOWN_MS = Number(process.env.AUTO_ACCEPT_GLOBAL_COOLDOWN_MS || AUTO_ACCEPT_COLLECTION_WINDOW_MS);
-const AUTO_ACCEPT_RUN_LOCK_MS = Number(process.env.AUTO_ACCEPT_RUN_LOCK_MS || 30_000);
-const AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS = Number(process.env.AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS || 15_000);
-let lastRequestDrivenAutoAcceptAt = 0;
-
-function triggerRequestDrivenAutoAccept(io) {
-    const now = Date.now();
-    if (now - lastRequestDrivenAutoAcceptAt < AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS) {
-        return;
-    }
-
-    lastRequestDrivenAutoAcceptAt = now;
-    runAutoAcceptForEnabledProsumers(io).catch((error) => {
-        console.error('[AutoAccept RequestTrigger Error]:', error.message);
-    });
-}
-
 const orderSchema = z.object({
     type: z.enum(['buy', 'sell']),
     kwh: z.number().positive(),
@@ -40,18 +21,6 @@ router.get('/orders', async (req, res, next) => {
     try {
         const sells = await Order.find({ type: 'sell', status: { $in: ['PENDING', 'PARTIAL'] } }).populate('maker', 'username trustScore isCertified').sort({ price: 1 });
         const buys = await Order.find({ type: 'buy', status: { $in: ['PENDING', 'PARTIAL'] } }).populate('maker', 'username trustScore isCertified').sort({ price: -1 });
-
-        // On serverless, request traffic becomes a lightweight fallback trigger for auto-accept checks.
-        const eligibleBefore = Date.now() - AUTO_ACCEPT_COLLECTION_WINDOW_MS;
-        const hasEligibleBuyBids = buys.some((bid) => {
-            const createdAt = new Date(bid.createdAt).getTime();
-            return Number.isFinite(createdAt) && createdAt <= eligibleBefore;
-        });
-
-        if (hasEligibleBuyBids) {
-            triggerRequestDrivenAutoAccept(req.app.get('io'));
-        }
-
         res.json({ sells, buys });
     } catch (err) {
         next(err);
@@ -237,22 +206,7 @@ async function processAutoAcceptHighest({ prosumer, io }) {
         return { ok: false, reason: 'NO_PENDING_BIDS' };
     }
 
-    const eligibleBefore = Date.now() - AUTO_ACCEPT_COLLECTION_WINDOW_MS;
-    const eligibleBids = pendingBids.filter((bid) => {
-        const createdAt = new Date(bid.createdAt).getTime();
-        return Number.isFinite(createdAt) && createdAt <= eligibleBefore;
-    });
-
-    if (eligibleBids.length === 0) {
-        return {
-            ok: false,
-            reason: 'COLLECTION_WINDOW_ACTIVE',
-            pendingCount: pendingBids.length,
-            collectionWindowMs: AUTO_ACCEPT_COLLECTION_WINDOW_MS
-        };
-    }
-
-    const highestBid = eligibleBids[0];
+    const highestBid = pendingBids[0];
 
     const liveHighestBid = await Order.findOne({
         _id: highestBid._id,
@@ -280,7 +234,7 @@ async function processAutoAcceptHighest({ prosumer, io }) {
         io
     });
 
-    const rejectedBids = eligibleBids.filter(
+    const rejectedBids = pendingBids.filter(
         bid => bid._id.toString() !== liveHighestBid._id.toString()
     );
     const rejectedBidIds = rejectedBids.map(bid => bid._id);
@@ -363,13 +317,6 @@ router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => 
         if (!result.ok) {
             if (result.reason === 'NO_PENDING_BIDS') {
                 return res.status(404).json({ error: 'No pending bids in current energy cycle' });
-            }
-            if (result.reason === 'COLLECTION_WINDOW_ACTIVE') {
-                const waitSeconds = Math.ceil((result.collectionWindowMs || AUTO_ACCEPT_COLLECTION_WINDOW_MS) / 1000);
-                return res.status(409).json({
-                    error: `Bids are still in collection window. Retry in ~${waitSeconds}s so highest-bid comparison can complete.`,
-                    pendingCount: result.pendingCount || 0
-                });
             }
             if (result.reason === 'STALE_BID') {
                 return res.status(409).json({ error: 'Highest bid was already resolved. Retry next cycle.' });
@@ -514,67 +461,8 @@ export async function runMatchingEngine(req) {
 }
 
 export async function runAutoAcceptForEnabledProsumers(io) {
-    const gov = await Governance.findOneAndUpdate(
-        {},
-        { $setOnInsert: {} },
-        { new: true, upsert: true, setDefaultsOnInsert: true, sort: { createdAt: 1 } }
-    );
-
-    if (gov && (!gov.isAiEnabled || gov.isTradingPaused)) {
-        return {
-            scanned: 0,
-            accepted: 0,
-            noPending: 0,
-            waitingWindow: 0,
-            stale: 0,
-            locked: 1,
-            errors: 0
-        };
-    }
-
-    const now = Date.now();
-    const nowDate = new Date(now);
-    const cooldownThreshold = new Date(now - AUTO_ACCEPT_GLOBAL_COOLDOWN_MS);
-    const runLockUntil = new Date(now + AUTO_ACCEPT_RUN_LOCK_MS);
-
-    const runGate = await Governance.findOneAndUpdate(
-        {
-            _id: gov._id,
-            $and: [
-                {
-                    $or: [
-                        { autoAcceptRunLockUntil: { $exists: false } },
-                        { autoAcceptRunLockUntil: { $lte: nowDate } }
-                    ]
-                },
-                {
-                    $or: [
-                        { autoAcceptLastRunAt: { $exists: false } },
-                        { autoAcceptLastRunAt: { $lte: cooldownThreshold } }
-                    ]
-                }
-            ]
-        },
-        {
-            $set: {
-                autoAcceptRunLockUntil: runLockUntil,
-                autoAcceptLastRunAt: nowDate
-            }
-        },
-        { new: true }
-    );
-
-    if (!runGate) {
-        return {
-            scanned: 0,
-            accepted: 0,
-            noPending: 0,
-            waitingWindow: 0,
-            stale: 0,
-            locked: 1,
-            errors: 0
-        };
-    }
+    const gov = await Governance.findOne();
+    if (gov && (!gov.isAiEnabled || gov.isTradingPaused)) return;
 
     const enabledProsumers = await User.find({
         role: 'prosumer',
@@ -582,31 +470,13 @@ export async function runAutoAcceptForEnabledProsumers(io) {
         autoAcceptHighestEnabled: true
     }).select('_id username role status autoAcceptHighestEnabled');
 
-    const summary = {
-        scanned: enabledProsumers.length,
-        accepted: 0,
-        noPending: 0,
-        waitingWindow: 0,
-        stale: 0,
-        locked: 0,
-        errors: 0
-    };
-
     for (const prosumer of enabledProsumers) {
         try {
-            const result = await processAutoAcceptHighest({ prosumer, io });
-            if (result?.ok) summary.accepted += 1;
-            else if (result?.reason === 'NO_PENDING_BIDS') summary.noPending += 1;
-            else if (result?.reason === 'COLLECTION_WINDOW_ACTIVE') summary.waitingWindow += 1;
-            else if (result?.reason === 'STALE_BID') summary.stale += 1;
-            else if (result?.reason === 'LOCKED') summary.locked += 1;
+            await processAutoAcceptHighest({ prosumer, io });
         } catch (error) {
             console.error(`[AutoAccept Error] ${prosumer.username}:`, error.message);
-            summary.errors += 1;
         }
     }
-
-    return summary;
 }
 
 // Demo data seeder for market

@@ -256,32 +256,6 @@ app.use('/api', async (req, res, next) => {
     }
 });
 
-// Vercel Cron endpoint for persistent auto-accept execution in serverless mode.
-app.get('/api/cron/auto-accept', async (req, res) => {
-    const cronSecret = process.env.CRON_SECRET;
-    const authHeader = req.get('authorization') || '';
-    const isAuthorized = cronSecret
-        ? authHeader === `Bearer ${cronSecret}`
-        : !isProduction;
-
-    if (!isAuthorized) {
-        return res.status(401).json({ error: 'Unauthorized cron request' });
-    }
-
-    try {
-        const summary = await runAutoAcceptForEnabledProsumers(app.get('io'));
-        return res.json({
-            ok: true,
-            mode: isVercel ? 'vercel-serverless-cron' : 'local-manual-cron',
-            timestamp: new Date().toISOString(),
-            ...summary
-        });
-    } catch (error) {
-        console.error('[Cron AutoAccept Error]:', error);
-        return res.status(500).json({ error: 'Auto-accept cron run failed' });
-    }
-});
-
 app.use('/api/auth', authRoutes);
 app.use('/api/grid', gridRoutes);
 app.use('/api/assets', assetsRoutes);
