@@ -10,6 +10,9 @@ import { formatTimeIST } from '../utils/indiaFormat.js';
 
 const router = express.Router();
 
+// Keep bids visible for a short period before AI settlement so highest-bid selection is meaningful.
+const AUTO_ACCEPT_COLLECTION_WINDOW_MS = Number(process.env.AUTO_ACCEPT_COLLECTION_WINDOW_MS || 60_000);
+
 const orderSchema = z.object({
     type: z.enum(['buy', 'sell']),
     kwh: z.number().positive(),
@@ -213,7 +216,22 @@ async function processAutoAcceptHighest({ prosumer, io }) {
         return { ok: false, reason: 'NO_PENDING_BIDS' };
     }
 
-    const highestBid = pendingBids[0];
+    const eligibleBefore = Date.now() - AUTO_ACCEPT_COLLECTION_WINDOW_MS;
+    const eligibleBids = pendingBids.filter((bid) => {
+        const createdAt = new Date(bid.createdAt).getTime();
+        return Number.isFinite(createdAt) && createdAt <= eligibleBefore;
+    });
+
+    if (eligibleBids.length === 0) {
+        return {
+            ok: false,
+            reason: 'COLLECTION_WINDOW_ACTIVE',
+            pendingCount: pendingBids.length,
+            collectionWindowMs: AUTO_ACCEPT_COLLECTION_WINDOW_MS
+        };
+    }
+
+    const highestBid = eligibleBids[0];
 
     const liveHighestBid = await Order.findOne({
         _id: highestBid._id,
@@ -241,7 +259,7 @@ async function processAutoAcceptHighest({ prosumer, io }) {
         io
     });
 
-    const rejectedBids = pendingBids.filter(
+    const rejectedBids = eligibleBids.filter(
         bid => bid._id.toString() !== liveHighestBid._id.toString()
     );
     const rejectedBidIds = rejectedBids.map(bid => bid._id);
@@ -324,6 +342,13 @@ router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => 
         if (!result.ok) {
             if (result.reason === 'NO_PENDING_BIDS') {
                 return res.status(404).json({ error: 'No pending bids in current energy cycle' });
+            }
+            if (result.reason === 'COLLECTION_WINDOW_ACTIVE') {
+                const waitSeconds = Math.ceil((result.collectionWindowMs || AUTO_ACCEPT_COLLECTION_WINDOW_MS) / 1000);
+                return res.status(409).json({
+                    error: `Bids are still in collection window. Retry in ~${waitSeconds}s so highest-bid comparison can complete.`,
+                    pendingCount: result.pendingCount || 0
+                });
             }
             if (result.reason === 'STALE_BID') {
                 return res.status(409).json({ error: 'Highest bid was already resolved. Retry next cycle.' });
@@ -490,6 +515,7 @@ export async function runAutoAcceptForEnabledProsumers(io) {
         scanned: enabledProsumers.length,
         accepted: 0,
         noPending: 0,
+        waitingWindow: 0,
         stale: 0,
         locked: 0,
         errors: 0
@@ -500,6 +526,7 @@ export async function runAutoAcceptForEnabledProsumers(io) {
             const result = await processAutoAcceptHighest({ prosumer, io });
             if (result?.ok) summary.accepted += 1;
             else if (result?.reason === 'NO_PENDING_BIDS') summary.noPending += 1;
+            else if (result?.reason === 'COLLECTION_WINDOW_ACTIVE') summary.waitingWindow += 1;
             else if (result?.reason === 'STALE_BID') summary.stale += 1;
             else if (result?.reason === 'LOCKED') summary.locked += 1;
         } catch (error) {
