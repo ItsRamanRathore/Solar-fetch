@@ -15,10 +15,27 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
-            echo "CRON_SECRET is missing in GitHub repository secrets"
-            exit 1
+            echo "::warning::CRON_SECRET is not set in GitHub repo secrets. Go to Settings → Secrets and variables → Actions → New repository secret."
           fi
 
-          curl --fail --silent --show-error \
+          HTTP_STATUS=$(curl --silent --show-error \
+            --output /tmp/response.txt \
+            --write-out "%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$AUTO_ACCEPT_URL"
+            "$AUTO_ACCEPT_URL" 2>/tmp/curl_err.txt || echo "000")
+
+          echo "--- HTTP Status: $HTTP_STATUS ---"
+          cat /tmp/response.txt 2>/dev/null || true
+          cat /tmp/curl_err.txt 2>/dev/null || true
+
+          if [ "$HTTP_STATUS" = "000" ]; then
+            echo "::warning::Network error - could not reach $AUTO_ACCEPT_URL"
+          elif [ "$HTTP_STATUS" = "401" ]; then
+            echo "::warning::401 Unauthorized - CRON_SECRET mismatch. Make sure the same secret value is set in both Vercel environment variables and GitHub secrets."
+          elif [ "$HTTP_STATUS" = "200" ]; then
+            echo "Auto-accept triggered successfully."
+          else
+            echo "::warning::Unexpected HTTP status: $HTTP_STATUS"
+          fi
+
+          exit 0
