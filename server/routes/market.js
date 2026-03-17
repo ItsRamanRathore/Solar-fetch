@@ -12,6 +12,8 @@ const router = express.Router();
 
 // Keep bids visible for a short period before AI settlement so highest-bid selection is meaningful.
 const AUTO_ACCEPT_COLLECTION_WINDOW_MS = Number(process.env.AUTO_ACCEPT_COLLECTION_WINDOW_MS || 120_000);
+const AUTO_ACCEPT_GLOBAL_COOLDOWN_MS = Number(process.env.AUTO_ACCEPT_GLOBAL_COOLDOWN_MS || AUTO_ACCEPT_COLLECTION_WINDOW_MS);
+const AUTO_ACCEPT_RUN_LOCK_MS = Number(process.env.AUTO_ACCEPT_RUN_LOCK_MS || 30_000);
 const AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS = Number(process.env.AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS || 15_000);
 let lastRequestDrivenAutoAcceptAt = 0;
 
@@ -40,7 +42,13 @@ router.get('/orders', async (req, res, next) => {
         const buys = await Order.find({ type: 'buy', status: { $in: ['PENDING', 'PARTIAL'] } }).populate('maker', 'username trustScore isCertified').sort({ price: -1 });
 
         // On serverless, request traffic becomes a lightweight fallback trigger for auto-accept checks.
-        if (buys.length > 0) {
+        const eligibleBefore = Date.now() - AUTO_ACCEPT_COLLECTION_WINDOW_MS;
+        const hasEligibleBuyBids = buys.some((bid) => {
+            const createdAt = new Date(bid.createdAt).getTime();
+            return Number.isFinite(createdAt) && createdAt <= eligibleBefore;
+        });
+
+        if (hasEligibleBuyBids) {
             triggerRequestDrivenAutoAccept(req.app.get('io'));
         }
 
@@ -98,13 +106,6 @@ router.post('/orders', requireAuth, async (req, res, next) => {
             price
         });
         await order.save();
-
-        // On hobby/serverless plans, this keeps auto-accept responsive even without frequent native cron.
-        if (type === 'buy') {
-            runAutoAcceptForEnabledProsumers(req.app.get('io')).catch((error) => {
-                console.error('[AutoAccept OnBuy Error]:', error.message);
-            });
-        }
 
         // Trigger basic matching engine asynchronously
         runMatchingEngine(req).catch(console.error);
@@ -513,12 +514,62 @@ export async function runMatchingEngine(req) {
 }
 
 export async function runAutoAcceptForEnabledProsumers(io) {
-    const gov = await Governance.findOne();
+    const gov = await Governance.findOneAndUpdate(
+        {},
+        { $setOnInsert: {} },
+        { new: true, upsert: true, setDefaultsOnInsert: true, sort: { createdAt: 1 } }
+    );
+
     if (gov && (!gov.isAiEnabled || gov.isTradingPaused)) {
         return {
             scanned: 0,
             accepted: 0,
             noPending: 0,
+            waitingWindow: 0,
+            stale: 0,
+            locked: 1,
+            errors: 0
+        };
+    }
+
+    const now = Date.now();
+    const nowDate = new Date(now);
+    const cooldownThreshold = new Date(now - AUTO_ACCEPT_GLOBAL_COOLDOWN_MS);
+    const runLockUntil = new Date(now + AUTO_ACCEPT_RUN_LOCK_MS);
+
+    const runGate = await Governance.findOneAndUpdate(
+        {
+            _id: gov._id,
+            $and: [
+                {
+                    $or: [
+                        { autoAcceptRunLockUntil: { $exists: false } },
+                        { autoAcceptRunLockUntil: { $lte: nowDate } }
+                    ]
+                },
+                {
+                    $or: [
+                        { autoAcceptLastRunAt: { $exists: false } },
+                        { autoAcceptLastRunAt: { $lte: cooldownThreshold } }
+                    ]
+                }
+            ]
+        },
+        {
+            $set: {
+                autoAcceptRunLockUntil: runLockUntil,
+                autoAcceptLastRunAt: nowDate
+            }
+        },
+        { new: true }
+    );
+
+    if (!runGate) {
+        return {
+            scanned: 0,
+            accepted: 0,
+            noPending: 0,
+            waitingWindow: 0,
             stale: 0,
             locked: 1,
             errors: 0
