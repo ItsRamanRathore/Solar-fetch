@@ -11,7 +11,7 @@ import { formatTimeIST } from '../utils/indiaFormat.js';
 const router = express.Router();
 
 // Keep bids visible for a short period before AI settlement so highest-bid selection is meaningful.
-const AUTO_ACCEPT_COLLECTION_WINDOW_MS = Number(process.env.AUTO_ACCEPT_COLLECTION_WINDOW_MS || 60_000);
+const AUTO_ACCEPT_COLLECTION_WINDOW_MS = Number(process.env.AUTO_ACCEPT_COLLECTION_WINDOW_MS || 120_000);
 
 const orderSchema = z.object({
     type: z.enum(['buy', 'sell']),

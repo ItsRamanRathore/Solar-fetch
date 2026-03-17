@@ -786,7 +786,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                     <div>
                                         <div className="text-[10px] font-black text-white uppercase">Auto-Accept Highest</div>
                                         <div className="text-[8px] text-muted uppercase tracking-tight mt-0.5">
-                                                {isAiLocked ? 'Locked by Governor' : autoAcceptHighestEnabled ? (liveBuyBids.length > 0 ? 'Server scanning every 1m' : 'Armed • waiting for bids') : 'Disabled'}
+                                                {isAiLocked ? 'Locked by Governor' : autoAcceptHighestEnabled ? (liveBuyBids.length > 0 ? 'Server scanning every 2m' : 'Armed • waiting for bids') : 'Disabled'}
                                         </div>
                                     </div>
                                     <button
