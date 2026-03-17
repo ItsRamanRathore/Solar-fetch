@@ -11,9 +11,20 @@ router.get('/', async (req, res) => {
             { $limit: 100 },
             {
                 $addFields: {
+                    fromObjectId: {
+                        $convert: { input: '$from', to: 'objectId', onError: null, onNull: null }
+                    },
                     toObjectId: {
-                        $convert: { input: "$to", to: "objectId", onError: null, onNull: null }
+                        $convert: { input: '$to', to: 'objectId', onError: null, onNull: null }
                     }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'fromObjectId',
+                    foreignField: '_id',
+                    as: 'sellerDetails'
                 }
             },
             {
@@ -29,8 +40,10 @@ router.get('/', async (req, res) => {
         // Map back to standard structure with populated username fallback
         const formatted = transactions.map(tx => ({
             ...tx,
+            fromUserObject: tx.sellerDetails && tx.sellerDetails[0] ? tx.sellerDetails[0] : null,
             toUserObject: tx.buyerDetails && tx.buyerDetails[0] ? tx.buyerDetails[0] : null,
-            toUsername: tx.buyerDetails && tx.buyerDetails[0] ? tx.buyerDetails[0].username : tx.to
+            fromUsername: tx.sellerDetails && tx.sellerDetails[0] ? tx.sellerDetails[0].username : (tx.fromUsername || tx.from),
+            toUsername: tx.buyerDetails && tx.buyerDetails[0] ? tx.buyerDetails[0].username : (tx.toUsername || tx.to)
         }));
         
         res.json(formatted);

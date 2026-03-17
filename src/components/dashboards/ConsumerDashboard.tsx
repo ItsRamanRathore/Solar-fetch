@@ -47,6 +47,8 @@ interface MarketOrder {
     type?: 'buy' | 'sell';
     status?: 'PENDING' | 'PARTIAL' | 'MATCHED' | 'CANCELLED';
     createdAt?: string;
+    updatedAt?: string;
+    kwh?: number;
     maker?: {
         username?: string;
         isCertified?: boolean;
@@ -83,6 +85,21 @@ interface BidFormValues {
     source?: 'manual' | 'auto';
 }
 
+interface CurrentConsumer {
+    _id?: string;
+    username?: string;
+}
+
+interface BidResponseEvent {
+    type?: 'accepted' | 'rejected';
+    bidId?: string;
+    consumerId?: string;
+    consumerUsername?: string;
+    prosumerUsername?: string;
+    price?: number;
+    reason?: string;
+}
+
 const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
     const { settings } = useSettings();
     const queryClient = useQueryClient();
@@ -106,6 +123,15 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
     const isGridFail = simMode === 'grid-fail';
     const isSunset = simMode === 'sunset';
 
+    const { data: currentConsumer } = useQuery<CurrentConsumer>({
+        queryKey: ['consumer:me'],
+        queryFn: async () => {
+            const res = await fetch('/api/auth/me', { credentials: 'include' });
+            if (!res.ok) throw new Error('Failed to fetch current consumer profile');
+            return res.json();
+        },
+    });
+
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date().getHours()), 60000);
         return () => clearInterval(timer);
@@ -125,19 +151,42 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
             queryClient.invalidateQueries({ queryKey: ['connections'] });
             queryClient.invalidateQueries({ queryKey: ['userStats'] });
         };
+        const handleBidResponse = (payload: BidResponseEvent) => {
+            const isForCurrentConsumer = Boolean(
+                (payload.consumerId && currentConsumer?._id && payload.consumerId === currentConsumer._id) ||
+                (payload.consumerUsername && currentConsumer?.username && payload.consumerUsername === currentConsumer.username)
+            );
+            if (!isForCurrentConsumer) return;
+
+            if (payload.type === 'accepted') {
+                const acceptedPrice = Number(payload.price ?? 0).toFixed(2);
+                message.success(`Bid accepted by ${payload.prosumerUsername || 'prosumer'} at ${settings.currency}${acceptedPrice}/kWh`, 4);
+            } else if (payload.type === 'rejected') {
+                const reasonText = payload.reason === 'OUTBID_IN_AI_CYCLE'
+                    ? ' (outbid in current AI cycle)'
+                    : '';
+                message.warning(`Bid rejected${reasonText}`, 4);
+            }
+
+            queryClient.invalidateQueries({ queryKey: ['myBids'] });
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+            queryClient.invalidateQueries({ queryKey: ['userStats'] });
+        };
 
         socket.on('market:newOrder', handleOrderUpdate);
         socket.on('market:orderComplete', handleOrderUpdate);
+        socket.on('market:bidResponse', handleBidResponse);
         socket.on('connections:updated', handleConnectionUpdate);
         socket.on('users:updated', handleUserUpdate);
 
         return () => {
             socket.off('market:newOrder', handleOrderUpdate);
             socket.off('market:orderComplete', handleOrderUpdate);
+            socket.off('market:bidResponse', handleBidResponse);
             socket.off('connections:updated', handleConnectionUpdate);
             socket.off('users:updated', handleUserUpdate);
         };
-    }, [socket, queryClient]);
+    }, [socket, queryClient, currentConsumer?._id, currentConsumer?.username, settings.currency]);
 
     const { data: prosumers } = useQuery<ProsumerNode[]>({
         queryKey: ['prosumers'],
@@ -153,6 +202,16 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
             return res.json();
         },
         refetchInterval: 2000,
+    });
+
+    const { data: myBidHistory, isLoading: myBidHistoryLoading } = useQuery<MarketOrder[]>({
+        queryKey: ['myBids'],
+        queryFn: async () => {
+            const res = await fetch('/api/market/my-bids', { credentials: 'include' });
+            if (!res.ok) throw new Error('Failed to fetch bid history');
+            return res.json();
+        },
+        refetchInterval: 5000,
     });
 
     const { data: usageHistory } = useQuery<UsageChartPoint[]>({
@@ -262,6 +321,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
     });
+
+    const myBids = myBidHistory || [];
 
     const offerByUsername = new Map<string, MarketOrder>(
         sells
@@ -1044,6 +1105,80 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = ({ simMode }) => {
                                         </span>
                                     ),
                                 },
+                            ]}
+                        />
+                    </Card>
+                </Col>
+
+                <Col xs={24}>
+                    <Card className="glass-card" bodyStyle={{ padding: '32px' }}>
+                        <div className="flex justify-between items-center mb-6 gap-4 flex-wrap">
+                            <div>
+                                <h3 className="text-lg font-black font-['Outfit'] uppercase text-white m-0 tracking-wider flex items-center gap-2">
+                                    <Cpu size={20} className="text-cyan-400" /> My Bid Request History
+                                </h3>
+                                <p className="text-[10px] text-muted uppercase tracking-widest mt-1">Resolved bids stay visible with accepted or rejected outcomes</p>
+                            </div>
+                            <div className="text-[10px] font-black uppercase tracking-widest text-muted">
+                                Total Bids: {myBids.length}
+                            </div>
+                        </div>
+
+                        <Table
+                            dataSource={myBids}
+                            loading={myBidHistoryLoading}
+                            rowKey="_id"
+                            pagination={{ pageSize: 6 }}
+                            className="bg-transparent"
+                            locale={{ emptyText: <div className="py-10 text-[10px] font-black uppercase tracking-[0.2em] text-muted">No bid requests yet</div> }}
+                            rowClassName="hover:bg-white/5 transition-colors"
+                            columns={[
+                                {
+                                    title: 'PLACED',
+                                    dataIndex: 'createdAt',
+                                    render: (createdAt: string | undefined) => <span className="text-xs text-muted">{createdAt ? formatTimeIST(createdAt) : '-'}</span>,
+                                },
+                                {
+                                    title: 'VOLUME',
+                                    key: 'volume',
+                                    render: (_: unknown, bid: MarketOrder) => <span className="text-sm font-bold text-white">{(bid.kwh ?? bid.remainingKwh ?? 0).toFixed(2)} kWh</span>,
+                                },
+                                {
+                                    title: 'BID PRICE',
+                                    dataIndex: 'price',
+                                    render: (price: number | undefined) => <span className="text-sm font-black text-cyan-400">{settings.currency}{(price ?? 0).toFixed(2)}/kWh</span>,
+                                },
+                                {
+                                    title: 'STATUS',
+                                    dataIndex: 'status',
+                                    render: (status: MarketOrder['status']) => {
+                                        const normalized = status || 'PENDING';
+                                        const label = normalized === 'CANCELLED'
+                                            ? 'Rejected'
+                                            : normalized === 'MATCHED'
+                                            ? 'Accepted'
+                                            : normalized === 'PARTIAL'
+                                            ? 'Partially Filled'
+                                            : 'Pending';
+                                        const statusClass = normalized === 'CANCELLED'
+                                            ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                                            : normalized === 'MATCHED'
+                                            ? 'bg-[#00ff88]/10 text-[#00ff88] border-[#00ff88]/30'
+                                            : normalized === 'PARTIAL'
+                                            ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+                                            : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30';
+                                        return (
+                                            <span className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest border ${statusClass}`}>
+                                                {label}
+                                            </span>
+                                        );
+                                    },
+                                },
+                                {
+                                    title: 'UPDATED',
+                                    dataIndex: 'updatedAt',
+                                    render: (updatedAt: string | undefined) => <span className="text-xs text-muted">{updatedAt ? formatTimeIST(updatedAt) : '-'}</span>,
+                                }
                             ]}
                         />
                     </Card>

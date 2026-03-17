@@ -27,6 +27,24 @@ router.get('/orders', async (req, res, next) => {
     }
 });
 
+// Get consumer bid history (includes matched/rejected statuses)
+router.get('/my-bids', requireAuth, async (req, res, next) => {
+    try {
+        if (req.user.role !== 'consumer') {
+            return res.status(403).json({ error: 'Only consumers can view bid history' });
+        }
+
+        const bids = await Order.find({
+            maker: req.user._id,
+            type: 'buy'
+        }).sort({ createdAt: -1 }).limit(100);
+
+        res.json(bids);
+    } catch (err) {
+        next(err);
+    }
+});
+
 // Post a new order
 router.post('/orders', requireAuth, async (req, res, next) => {
     try {
@@ -78,6 +96,98 @@ router.post('/orders', requireAuth, async (req, res, next) => {
     }
 });
 
+async function settleMatchedPair({ sellOrder, buyOrder, req }) {
+    const sellerUser = sellOrder?.maker?.username
+        ? sellOrder.maker
+        : await User.findById(sellOrder.maker);
+    const buyerUser = buyOrder?.maker?.username
+        ? buyOrder.maker
+        : await User.findById(buyOrder.maker);
+
+    if (!sellerUser || !buyerUser) {
+        throw new Error('Unable to resolve seller/buyer for settlement');
+    }
+
+    const settleVolume = Math.min(sellOrder.remainingKwh, buyOrder.remainingKwh);
+    const settlePrice = sellOrder.price; // Settle at seller ask
+
+    sellOrder.remainingKwh = parseFloat((sellOrder.remainingKwh - settleVolume).toFixed(2));
+    buyOrder.remainingKwh = parseFloat((buyOrder.remainingKwh - settleVolume).toFixed(2));
+
+    sellOrder.status = sellOrder.remainingKwh <= 0 ? 'MATCHED' : 'PARTIAL';
+    buyOrder.status = buyOrder.remainingKwh <= 0 ? 'MATCHED' : 'PARTIAL';
+
+    await sellOrder.save();
+    await buyOrder.save();
+
+    let greenHash = null;
+    if (sellerUser.isCertified) {
+        const esgData = `${sellerUser._id}-${buyerUser._id}-${settleVolume}-${Date.now()}`;
+        greenHash = 'ESG-' + crypto.createHash('sha256').update(esgData).digest('hex').substring(0, 16).toUpperCase();
+    }
+
+    const hardwareVerified = !!sellerUser.pufIdentity || sellerUser.isCertified;
+    if (!hardwareVerified && Math.random() > 0.9) {
+        console.error(`[SECURITY ALERT] Unverified hardware detected for ${sellerUser.username}. Potential Ghost Energy attempt.`);
+    }
+
+    const txData = `${sellerUser.username}-${buyerUser.username}-${settleVolume}-${settlePrice}-${Date.now()}`;
+    const txHash = '0x' + crypto.createHash('sha256').update(txData).digest('hex').substring(0, 16).toUpperCase();
+
+    const tx = await Transaction.create({
+        txid: 'TX-' + Math.floor(Math.random() * 100000),
+        from: sellerUser._id.toString(),
+        to: buyerUser._id.toString(),
+        fromUsername: sellerUser.username,
+        toUsername: buyerUser.username,
+        amount: settleVolume,
+        price: settlePrice,
+        settlementTotal: parseFloat((settleVolume * settlePrice).toFixed(2)),
+        hash: txHash,
+        greenHash,
+        provenance: sellerUser.isCertified ? 'Verified Solar/Wind' : (hardwareVerified ? 'Hardware Verified' : 'Standard Green'),
+        status: 'SETTLED'
+    });
+
+    await User.findByIdAndUpdate(sellerUser._id, { $inc: { credits: (settleVolume * settlePrice) } });
+    await User.findByIdAndUpdate(buyerUser._id, { $inc: { credits: -(settleVolume * settlePrice) } });
+
+    const io = req?.app?.get('io');
+    if (io) {
+        io.emit('market:bidResponse', {
+            type: 'accepted',
+            bidId: buyOrder._id.toString(),
+            consumerId: buyerUser._id.toString(),
+            consumerUsername: buyerUser.username,
+            prosumerId: sellerUser._id.toString(),
+            prosumerUsername: sellerUser.username,
+            settledVolume: settleVolume,
+            price: settlePrice,
+            status: buyOrder.status,
+            time: formatTimeIST()
+        });
+
+        io.emit('market:orderComplete', {
+            txid: tx.txid,
+            price: settlePrice,
+            volume: settleVolume,
+            greenHash: tx.greenHash,
+            sellerUsername: sellerUser.username,
+            buyerUsername: buyerUser.username,
+            time: formatTimeIST(),
+            type: 'Match'
+        });
+    }
+
+    return {
+        tx,
+        settleVolume,
+        settlePrice,
+        sellerUser,
+        buyerUser
+    };
+}
+
 // AI Broker: Auto-accept highest bid in current energy cycle
 // Energy cycle = bids created within last 30 minutes
 router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => {
@@ -97,39 +207,53 @@ router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => 
             type: 'buy',
             status: { $in: ['PENDING', 'PARTIAL'] },
             createdAt: { $gte: energyCycleStart }
-        }).populate('maker', 'username trustScore');
+        }).populate('maker', 'username trustScore').sort({ price: -1, createdAt: 1 });
 
         if (pendingBids.length === 0) {
             return res.status(404).json({ error: 'No pending bids in current energy cycle' });
         }
 
-        // Find highest bid by price
-        const highestBid = pendingBids.reduce((max, bid) => 
-            (bid.price > max.price) ? bid : max
-        );
+        // Highest bid wins, tie breaks by oldest createdAt due to sort order.
+        const highestBid = pendingBids[0];
 
-        // Accept the highest bid by creating a sell order
+        // Re-check selected bid is still open before settling.
+        const liveHighestBid = await Order.findOne({
+            _id: highestBid._id,
+            type: 'buy',
+            status: { $in: ['PENDING', 'PARTIAL'] }
+        }).populate('maker', 'username trustScore');
+
+        if (!liveHighestBid) {
+            return res.status(409).json({ error: 'Highest bid was already resolved. Retry next cycle.' });
+        }
+
+        // Accept the selected highest bid by creating a sell order.
         const matchedSell = await Order.create({
             maker: req.user._id,
             type: 'sell',
-            kwh: highestBid.remainingKwh,
-            remainingKwh: highestBid.remainingKwh,
-            price: highestBid.price,
+            kwh: liveHighestBid.remainingKwh,
+            remainingKwh: liveHighestBid.remainingKwh,
+            price: liveHighestBid.price,
             status: 'PENDING',
             aiAutomated: true
         });
 
-        // Run matching engine to settle the order
-        await runMatchingEngine(req);
+        // Force settlement against the selected highest bid to keep ledger identities accurate.
+        const settlement = await settleMatchedPair({
+            sellOrder: matchedSell,
+            buyOrder: liveHighestBid,
+            req
+        });
 
-        // Reject all other bids in the cycle
-        const rejectedBidIds = pendingBids
-            .filter(bid => bid._id.toString() !== highestBid._id.toString())
-            .map(bid => bid._id);
+        // Reject all other bids in the same cycle.
+        const rejectedBids = pendingBids.filter(
+            bid => bid._id.toString() !== liveHighestBid._id.toString()
+        );
+        const rejectedBidIds = rejectedBids.map(bid => bid._id);
 
         if (rejectedBidIds.length > 0) {
             await Order.updateMany(
-                { _id: { $in: rejectedBidIds } },
+                { _id: { $in: rejectedBidIds }, status: { $in: ['PENDING', 'PARTIAL'] } },
                 { status: 'CANCELLED' }
             );
         }
@@ -137,15 +261,28 @@ router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => 
         // Broadcast AI broker action
         const io = req.app.get('io');
         if (io) {
+            rejectedBids.forEach((bid) => {
+                io.emit('market:bidResponse', {
+                    type: 'rejected',
+                    bidId: bid._id.toString(),
+                    consumerId: String(bid.maker?._id || ''),
+                    consumerUsername: bid.maker?.username,
+                    prosumerId: req.user._id.toString(),
+                    prosumerUsername: req.user.username,
+                    reason: 'OUTBID_IN_AI_CYCLE',
+                    time: formatTimeIST()
+                });
+            });
+
             io.emit('market:aiBrokerAction', {
                 prosumerId: req.user._id.toString(),
                 prosumerUsername: req.user.username,
                 action: 'accepted_highest_bid',
                 highestBid: {
-                    bidId: highestBid._id.toString(),
-                    price: highestBid.price,
-                    volume: highestBid.remainingKwh,
-                    bidderUsername: highestBid.maker?.username
+                    bidId: liveHighestBid._id.toString(),
+                    price: settlement.settlePrice,
+                    volume: settlement.settleVolume,
+                    bidderUsername: settlement.buyerUser.username
                 },
                 rejectedBidCount: rejectedBidIds.length,
                 sellOrderId: matchedSell._id.toString(),
@@ -165,14 +302,14 @@ router.post('/bids/auto-accept-highest', requireAuth, async (req, res, next) => 
             success: true,
             status: 'auto_accepted',
             highestBid: {
-                _id: highestBid._id,
-                price: highestBid.price,
-                volume: highestBid.remainingKwh,
-                bidderUsername: highestBid.maker?.username
+                _id: liveHighestBid._id,
+                price: settlement.settlePrice,
+                volume: settlement.settleVolume,
+                bidderUsername: settlement.buyerUser.username
             },
             sellOrder: matchedSell,
             rejectedBidCount: rejectedBidIds.length,
-            message: `AI Broker accepted highest bid at ₹${highestBid.price.toFixed(2)}/kWh from ${highestBid.maker?.username}`
+            message: `AI Broker accepted highest bid at ₹${settlement.settlePrice.toFixed(2)}/kWh from ${settlement.buyerUser.username}`
         });
     } catch (err) {
         next(err);
@@ -213,9 +350,11 @@ router.post('/bids/:bidId/respond', requireAuth, async (req, res, next) => {
                 io.emit('market:bidResponse', {
                     type: 'rejected',
                     bidId: bid._id.toString(),
+                    consumerId: String(bid.maker?._id || ''),
                     prosumerId: req.user._id.toString(),
                     prosumerUsername: req.user.username,
                     consumerUsername: bid.maker?.username,
+                    reason: 'REJECTED_BY_PROSUMER',
                     time: formatTimeIST()
                 });
                 io.emit('market:orderComplete', {
@@ -239,19 +378,14 @@ router.post('/bids/:bidId/respond', requireAuth, async (req, res, next) => {
             status: 'PENDING'
         });
 
-        await runMatchingEngine(req);
+        const settlement = await settleMatchedPair({
+            sellOrder: matchedSell,
+            buyOrder: bid,
+            req
+        });
 
         const io = req.app.get('io');
         if (io) {
-            io.emit('market:bidResponse', {
-                type: 'accepted',
-                bidId: bid._id.toString(),
-                prosumerId: req.user._id.toString(),
-                prosumerUsername: req.user.username,
-                consumerUsername: bid.maker?.username,
-                sellOrderId: matchedSell._id.toString(),
-                time: formatTimeIST()
-            });
             io.emit('market:newOrder', {
                 type: 'Ask',
                 price: matchedSell.price,
@@ -260,7 +394,16 @@ router.post('/bids/:bidId/respond', requireAuth, async (req, res, next) => {
             });
         }
 
-        return res.json({ success: true, status: 'accepted', sellOrder: matchedSell });
+        return res.json({
+            success: true,
+            status: 'accepted',
+            sellOrder: matchedSell,
+            settlement: {
+                volume: settlement.settleVolume,
+                price: settlement.settlePrice,
+                consumerUsername: settlement.buyerUser.username
+            }
+        });
     } catch (err) {
         next(err);
     }
@@ -284,69 +427,11 @@ export async function runMatchingEngine(req) {
         if (bestSell && bestBuy && bestBuy.price >= bestSell.price) {
             matchFound = true; // We found a match, there might be more
 
-            const settleVolume = Math.min(bestSell.remainingKwh, bestBuy.remainingKwh);
-            const settlePrice = bestSell.price; // Settle at seller's ask
-
-            // Update remaining volumes
-            bestSell.remainingKwh = parseFloat((bestSell.remainingKwh - settleVolume).toFixed(2));
-            bestBuy.remainingKwh = parseFloat((bestBuy.remainingKwh - settleVolume).toFixed(2));
-
-            // Update statuses
-            bestSell.status = bestSell.remainingKwh <= 0 ? 'MATCHED' : 'PARTIAL';
-            bestBuy.status = bestBuy.remainingKwh <= 0 ? 'MATCHED' : 'PARTIAL';
-
-            await bestSell.save();
-            await bestBuy.save();
-
-            // Phase 2: Advanced Green Asset Logic (ESG Minting)
-            let greenHash = null;
-            if (bestSell.maker.isCertified) {
-                const esgData = `${bestSell.maker._id}-${bestBuy.maker._id}-${settleVolume}-${Date.now()}`;
-                greenHash = 'ESG-' + crypto.createHash('sha256').update(esgData).digest('hex').substring(0, 16).toUpperCase();
-            }
-
-            // Phase 2: Hardware-Sync Verification (mTLS/PUF)
-            const hardwareVerified = !!bestSell.maker.pufIdentity || bestSell.maker.isCertified;
-            if (!hardwareVerified && Math.random() > 0.9) {
-                console.error(`[SECURITY ALERT] Unverified hardware detected for ${bestSell.maker.username}. Potential Ghost Energy attempt.`);
-                // In a real system, we'd block this. For simulation, we log it.
-            }
-
-            // Create a settlement transaction in the ledger
-            const txVolume = settleVolume;
-            const txPrice = settlePrice;
-            const txData = `${bestSell.maker.username}-${bestBuy.maker.username}-${txVolume}-${txPrice}-${Date.now()}`;
-            const txHash = '0x' + crypto.createHash('sha256').update(txData).digest('hex').substring(0, 16).toUpperCase();
-
-            const tx = await Transaction.create({
-                txid: 'TX-' + Math.floor(Math.random() * 100000),
-                from: bestSell.maker.username,
-                to: bestBuy.maker.username,
-                amount: txVolume,
-                price: txPrice,
-                settlementTotal: parseFloat((txVolume * txPrice).toFixed(2)),
-                hash: txHash,
-                greenHash, // ESG Minting
-                provenance: bestSell.maker.isCertified ? 'Verified Solar/Wind' : (hardwareVerified ? 'Hardware Verified' : 'Standard Green'),
-                status: 'SETTLED'
+            await settleMatchedPair({
+                sellOrder: bestSell,
+                buyOrder: bestBuy,
+                req
             });
-
-            // Credit transfer
-            await User.findByIdAndUpdate(bestSell.maker._id, { $inc: { credits: (settleVolume * settlePrice) } });
-            await User.findByIdAndUpdate(bestBuy.maker._id, { $inc: { credits: -(settleVolume * settlePrice) } });
-
-            // Ensure broadcast works if order comes from HTTP Request
-            const io = req?.app?.get('io');
-            if (io) {
-                io.emit('market:orderComplete', {
-                    txid: tx.txid,
-                    price: settlePrice,
-                    volume: settleVolume,
-                    greenHash: tx.greenHash, // Signal ESG Minting
-                    time: formatTimeIST(),
-                    type: 'Match'
-                });
-            }
         }
     }
 }

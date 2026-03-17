@@ -2,8 +2,10 @@ import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
     txid: { type: String, required: true, unique: true },
-    from: { type: String, required: true }, // Can be a User ObjectId ref or 'PEER-X'
-    to: { type: String, required: true },   // Can be a User ObjectId ref or 'PEER-Y'
+    from: { type: String, required: true }, // User ObjectId string
+    to: { type: String, required: true },   // User ObjectId string
+    fromUsername: { type: String },
+    toUsername: { type: String },
     amount: { type: Number, required: true },
     price: { type: Number, required: true },
     settlementTotal: { type: Number, required: true },
