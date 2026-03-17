@@ -168,7 +168,7 @@ if (!isVercel) {
         } catch (error) {
             console.error('[AutoAcceptEngine Error]:', error);
         }
-    }, 120000);
+    }, 60000);
 
     const PORT = process.env.PORT || 5000;
     httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
