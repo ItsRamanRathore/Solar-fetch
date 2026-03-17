@@ -12,6 +12,20 @@ const router = express.Router();
 
 // Keep bids visible for a short period before AI settlement so highest-bid selection is meaningful.
 const AUTO_ACCEPT_COLLECTION_WINDOW_MS = Number(process.env.AUTO_ACCEPT_COLLECTION_WINDOW_MS || 120_000);
+const AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS = Number(process.env.AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS || 15_000);
+let lastRequestDrivenAutoAcceptAt = 0;
+
+function triggerRequestDrivenAutoAccept(io) {
+    const now = Date.now();
+    if (now - lastRequestDrivenAutoAcceptAt < AUTO_ACCEPT_REQUEST_TRIGGER_COOLDOWN_MS) {
+        return;
+    }
+
+    lastRequestDrivenAutoAcceptAt = now;
+    runAutoAcceptForEnabledProsumers(io).catch((error) => {
+        console.error('[AutoAccept RequestTrigger Error]:', error.message);
+    });
+}
 
 const orderSchema = z.object({
     type: z.enum(['buy', 'sell']),
@@ -24,6 +38,12 @@ router.get('/orders', async (req, res, next) => {
     try {
         const sells = await Order.find({ type: 'sell', status: { $in: ['PENDING', 'PARTIAL'] } }).populate('maker', 'username trustScore isCertified').sort({ price: 1 });
         const buys = await Order.find({ type: 'buy', status: { $in: ['PENDING', 'PARTIAL'] } }).populate('maker', 'username trustScore isCertified').sort({ price: -1 });
+
+        // On serverless, request traffic becomes a lightweight fallback trigger for auto-accept checks.
+        if (buys.length > 0) {
+            triggerRequestDrivenAutoAccept(req.app.get('io'));
+        }
+
         res.json({ sells, buys });
     } catch (err) {
         next(err);
