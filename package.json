@@ -4,12 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:ui\" \"npm run start-server\"",
+    "dev": "concurrently \"npm run dev:ui\" \"npm run dev:services\"",
     "dev:ui": "vite",
+    "dev:services": "concurrently \"npm run start:gateway\" \"npm run start:identity\" \"npm run start:metering\" \"npm run start:trading\" \"npm run start:settlement\"",
+    "start:gateway": "cross-env PORT=5000 KAFKAJS_NO_PARTITIONER_WARNING=1 node services/gateway/index.js",
+    "start:identity": "cross-env PORT=5001 KAFKAJS_NO_PARTITIONER_WARNING=1 node services/identity/index.js",
+    "start:metering": "cross-env PORT=5002 KAFKAJS_NO_PARTITIONER_WARNING=1 node services/metering/index.js",
+    "start:trading": "cross-env PORT=5003 KAFKAJS_NO_PARTITIONER_WARNING=1 node services/trading/index.js",
+    "start:settlement": "cross-env PORT=5004 KAFKAJS_NO_PARTITIONER_WARNING=1 node services/settlement/index.js",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start-server": "node server/index.js",
     "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest"
   },
   "dependencies": {

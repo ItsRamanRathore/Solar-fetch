@@ -14,12 +14,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { User } from './types/user';
 import './index.css';
 
+// Dynamic detection of LandingPage
+const landingModules = import.meta.glob('./landing/LandingPage.tsx', { eager: true });
+const LandingPageComponent = (Object.values(landingModules)[0] as any)?.default;
+
 const App: React.FC = () => {
     const [activeKey, setActiveKey] = useState('dashboard');
     const [simMode, setSimMode] = useState('standard');
     const [userRole, setUserRoleState] = useState<'prosumer' | 'consumer' | 'admin'>('consumer');
     const [credits, setCredits] = useState(0);
     const [user, setUser] = useState<User | null>(null);
+    const [landingDismissed, setLandingDismissed] = useState(false);
+
+    const handleStart = () => {
+        setLandingDismissed(true);
+    };
 
     useEffect(() => {
         const fetchInitialData = async () => {
@@ -125,6 +134,14 @@ const App: React.FC = () => {
             </AnimatePresence>
         );
     };
+
+    if (!landingDismissed && LandingPageComponent) {
+        return (
+            <ConfigProvider theme={darkThemeConfig}>
+                <LandingPageComponent onStart={handleStart} />
+            </ConfigProvider>
+        );
+    }
 
     if (!user) {
         return (
