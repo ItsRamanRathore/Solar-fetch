@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { message as antMessage } from 'antd';
 import { formatTimeIST } from '../../utils/indiaFormat';
+import type { LedgerEntry } from '../../types/admin';
 
 interface LedgerViewProps {
     simMode?: string;
@@ -12,13 +13,13 @@ interface LedgerViewProps {
 }
 
 const LedgerView: React.FC<LedgerViewProps> = () => {
-    const { data: ledgerData = [], isLoading } = useQuery({
+    const { data: ledgerData = [], isLoading } = useQuery<LedgerEntry[]>({
         queryKey: ['ledger'],
         queryFn: async () => {
             const res = await fetch('/api/ledger');
             if (!res.ok) throw new Error('Failed to fetch ledger');
             const data = await res.json();
-            return data.map((tx: any) => ({
+            return data.map((tx: LedgerEntry) => ({
                 ...tx,
                 key: tx._id,
                 timestamp: formatTimeIST(tx.timestamp)
@@ -41,7 +42,7 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
         {
             title: 'Provenance',
             key: 'provenance',
-            render: (row: any) => (
+            render: (row: LedgerEntry) => (
                 <div className="flex items-center gap-2">
                     <ShieldCheck size={14} className="text-[#00ff88]" />
                     <span className="text-[10px] font-black uppercase tracking-widest text-[#00ff88]">{row.provenance}</span>
@@ -73,7 +74,7 @@ const LedgerView: React.FC<LedgerViewProps> = () => {
         {
             title: 'Counterparties',
             key: 'parties',
-            render: (row: any) => (
+            render: (row: LedgerEntry) => (
                 <div className="flex items-center gap-2 text-xs">
                     <span className="text-white font-bold">{row.from}</span>
                     <ArrowRight size={12} className="text-muted" />

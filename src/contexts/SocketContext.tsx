@@ -1,14 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-
-interface SocketContextType {
-    socket: Socket | null;
-    connected: boolean;
-}
-
-const SocketContext = createContext<SocketContextType>({ socket: null, connected: false });
-
-export const useSocket = () => useContext(SocketContext);
+import { SocketContext } from './SocketContextCore';
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [socket, setSocket] = useState<Socket | null>(null);
@@ -26,6 +18,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             transports: ['websocket', 'polling']
         });
 
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSocket(newSocket);
 
         newSocket.on('connect', () => {

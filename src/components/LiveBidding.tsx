@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Badge } from 'antd';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useSocket } from '../contexts/SocketContext';
+import { useSocket } from '../contexts/useSocket';
 import { TrendingUp, TrendingDown } from 'lucide-react';
-import { useSettings } from '../contexts/SettingsContext';
+import { useSettings } from '../contexts/useSettings';
 import { formatTimeIST } from '../utils/indiaFormat';
 
 interface LiveBid {

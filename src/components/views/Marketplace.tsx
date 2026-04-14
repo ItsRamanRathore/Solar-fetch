@@ -3,12 +3,23 @@ import { Card, Row, Col, Button, Tag, Table, Modal, Form, InputNumber, Select, m
 import { ShoppingBag, Zap, Plus, User, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSocket } from '../../contexts/SocketContext';
+import { useSocket } from '../../contexts/useSocket';
 import { formatCurrencyINR } from '../../utils/indiaFormat';
+import type { MarketOrder } from '../../types/admin';
 
 interface MarketplaceProps {
     simMode?: string;
     userRole?: 'resident' | 'admin';
+}
+
+interface FormattedOrder {
+    key: string;
+    user: string;
+    kwh: number;
+    price: number;
+    status: string;
+    trustScore: number;
+    isCertified: boolean;
 }
 
 const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
@@ -17,14 +28,14 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
     const queryClient = useQueryClient();
     const { socket } = useSocket();
 
-    const { data: ordersData, isLoading } = useQuery({
+    const { data: ordersData, isLoading } = useQuery<{ sells: FormattedOrder[], buys: FormattedOrder[] }>({
         queryKey: ['orders'],
         queryFn: async () => {
             const res = await fetch('/api/market/orders');
             if (!res.ok) throw new Error('Failed to fetch orders');
             const data = await res.json();
-
-            const formatOrder = (o: any) => ({
+    
+            const formatOrder = (o: MarketOrder) => ({
                 key: o._id,
                 user: o.maker.username,
                 kwh: o.remainingKwh,
@@ -33,10 +44,10 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
                 trustScore: o.maker.trustScore,
                 isCertified: o.maker.isCertified
             });
-
+    
             return {
-                sells: data.sells.map(formatOrder),
-                buys: data.buys.map(formatOrder)
+                sells: (data.sells as MarketOrder[]).map(formatOrder),
+                buys: (data.buys as MarketOrder[]).map(formatOrder)
             };
         },
         refetchInterval: 10000 // Fallback polling
@@ -59,7 +70,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
     }, [socket, queryClient]);
 
     const postListingMutation = useMutation({
-        mutationFn: async (values: any) => {
+        mutationFn: async (values: { type: string, volume: number, price: number }) => {
             const res = await fetch('/api/market/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -86,13 +97,13 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
         }
     });
 
-    const handlePostListing = (values: any) => {
+    const handlePostListing = (values: { type: string, volume: number, price: number }) => {
         postListingMutation.mutate(values);
     };
 
     const sells = ordersData?.sells || [];
     const buys = ordersData?.buys || [];
-    const availableVolume = sells.reduce((acc: number, sell: any) => acc + (sell.kwh || 0), 0) + 14.5; // Mock base liquidity
+    const availableVolume = sells.reduce((acc: number, sell: FormattedOrder) => acc + (sell.kwh || 0), 0) + 14.5; // Mock base liquidity
 
 
     const columns = (marketType: 'sell' | 'buy') => [
@@ -100,7 +111,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
             title: marketType === 'sell' ? 'Seller' : 'Buyer',
             dataIndex: 'user',
             key: 'user',
-            render: (text: string, row: any) => (
+            render: (text: string, row: FormattedOrder) => (
                 <Space>
                     <Avatar size="small" icon={<User size={12} />} className="bg-white/5" />
                     <div>
@@ -128,7 +139,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ simMode, userRole }) => {
         {
             title: 'Status',
             key: 'status',
-            render: (row: any) => (
+            render: (row: FormattedOrder) => (
                 <Tag className={row.status === 'VERIFIED' ? 'tag-verified' : 'tag-pending'}>
                     {row.status}
                 </Tag>

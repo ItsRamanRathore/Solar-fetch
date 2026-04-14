@@ -4,6 +4,7 @@ import { ShieldCheck, Activity, Cpu, Terminal as TerminalIcon, RefreshCcw, Globe
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { formatCurrencyINR, formatTimeIST } from '../../utils/indiaFormat';
+import type { Asset } from '../../types/admin';
 
 interface MyAssetsProps {
     simMode?: string;
@@ -36,20 +37,16 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
         }
     }, [logs]);
 
-    const { data: assets = [], isLoading } = useQuery({
+    const { data: assets = [], isLoading } = useQuery<Asset[]>({
         queryKey: ['assets'],
         queryFn: async () => {
             const res = await fetch('/api/assets');
             if (!res.ok) throw new Error('Failed to fetch assets');
             const data = await res.json();
-            return data.map((item: any) => ({
+            return data.map((item: Asset) => ({
+                ...item,
                 key: item._id,
-                name: item.name,
-                type: item.type,
-                status: item.status,
-                output: `${item.output} ${item.type === 'Storage' ? 'kWh' : 'kW'}`,
-                efficiency: item.efficiency,
-                hardwareId: item.hardwareId
+                output: item.output,
             }));
         }
     });
@@ -58,6 +55,11 @@ const MyAssets: React.FC<MyAssetsProps> = ({ simMode }) => {
         { title: 'Asset Name', dataIndex: 'name', key: 'name', render: (text: string) => <span className="font-bold text-white">{text}</span> },
         { title: 'Type', dataIndex: 'type', key: 'type', render: (type: string) => <Tag className="tag-ledger">{type}</Tag> },
         { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => <Tag className="tag-verified">{status}</Tag> },
+        { 
+            title: 'Output', 
+            key: 'output', 
+            render: (row: Asset) => <span>{row.output} {row.type === 'Storage' ? 'kWh' : 'kW'}</span> 
+        },
         { title: 'Live Performance', dataIndex: 'efficiency', key: 'efficiency', render: (eff: number) => <span className="neon-text-green font-mono font-bold text-xs">{eff}%</span> },
     ];
 

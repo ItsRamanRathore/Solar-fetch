@@ -3,7 +3,7 @@ import { Card, Row, Col, Progress, Switch, Tooltip } from 'antd';
 import { DualAxes } from '@ant-design/plots';
 import { useQuery } from '@tanstack/react-query';
 import { Battery, Zap, Info, ShieldCheck } from 'lucide-react';
-import { useSettings } from '../contexts/SettingsContext';
+import { useSettings } from '../contexts/useSettings';
 import { formatTimeIST } from '../utils/indiaFormat';
 
 interface UsageData {

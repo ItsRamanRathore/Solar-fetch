@@ -1,4 +1,0 @@
-﻿
-> solar-fetch@0.0.0 test
-> cross-env NODE_OPTIONS=--experimental-vm-modules jest
-

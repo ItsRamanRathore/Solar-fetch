@@ -1,10 +1,13 @@
 import React from 'react';
 import { Card, Row, Col, Table, Button, message, Form, InputNumber, Tabs, Tag } from 'antd';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldAlert, CheckCircle, XCircle, Power, Settings2, ShieldCheck, Database, Lock, Settings, HelpCircle, Cpu } from 'lucide-react';
+import { ShieldAlert, CheckCircle, XCircle, Power, Settings2, ShieldCheck, Database, Lock, Settings as SettingsIcon, HelpCircle, Cpu } from 'lucide-react';
 import LedgerView from '../views/LedgerView';
-import { useSettings } from '../../contexts/SettingsContext';
-import { useSocket } from '../../contexts/SocketContext';
+import { useSettings } from '../../contexts/useSettings';
+import { useSocket } from '../../contexts/useSocket';
+import type { Governance, AdminStats, Conflict } from '../../types/admin';
+import type { User } from '../../types/user';
+import type { Settings } from '../../contexts/SettingsContextCore';
 
 interface AdminDashboardProps {
     simMode: string;
@@ -21,7 +24,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
     const { settings } = useSettings();
 
     // Fetch Pending Users
-    const { data: users, isLoading: loadingUsers } = useQuery({
+    const { data: users, isLoading: loadingUsers } = useQuery<User[]>({
         queryKey: ['adminUsers'],
         queryFn: async () => {
             const res = await fetch('/api/admin/users');
@@ -32,7 +35,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
     });
 
     // Fetch aggregate stats
-    const { data: stats } = useQuery({
+    const { data: stats } = useQuery<AdminStats>({
         queryKey: ['userStats'],
         queryFn: async () => {
             const res = await fetch('/api/users/stats');
@@ -45,7 +48,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
     const displayUsers = users || [];
 
     // Fetch Governance
-    const { data: govFetch } = useQuery({
+    const { data: govFetch } = useQuery<Governance>({
         queryKey: ['governance'],
         queryFn: async () => {
             const res = await fetch('/api/admin/governance');
@@ -57,7 +60,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
     const gov = govFetch || { priceCap: 0, floorPrice: 0, isTradingPaused: false, isAiEnabled: true };
 
     // Fetch Conflicts
-    const { data: conflicts, refetch: refetchConflicts } = useQuery({
+    const { data: conflicts, refetch: refetchConflicts } = useQuery<Conflict[]>({
         queryKey: ['adminConflicts'],
         queryFn: async () => {
             const res = await fetch('/api/admin/conflicts');
@@ -114,7 +117,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
     });
 
     const updateGovernance = useMutation({
-        mutationFn: async (payload: any) => {
+        mutationFn: async (payload: Partial<Governance>) => {
             const res = await fetch('/api/admin/governance', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -135,12 +138,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
 
     // Set form initial values when gov loads
     React.useEffect(() => {
-        if (gov) form.setFieldsValue({ 
-            priceCap: gov.priceCap, 
-            floorPrice: gov.floorPrice,
-            isAiEnabled: gov.isAiEnabled
+        if (govFetch) form.setFieldsValue({ 
+            priceCap: govFetch.priceCap, 
+            floorPrice: govFetch.floorPrice,
+            isAiEnabled: govFetch.isAiEnabled
         });
-    }, [gov, form]);
+    }, [govFetch, form]);
 
     return (
         <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-8">
@@ -157,7 +160,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
                     </div>
                 )}
                 <div className="flex items-center gap-2 ml-4">
-                    <Button className="glass-button !p-2" icon={<Settings size={14} />} />
+                    <Button className="glass-button !p-2" icon={<SettingsIcon size={20} />} />
                     <Button className="glass-button !p-2" icon={<HelpCircle size={14} />} />
                 </div>
             </div>
@@ -323,7 +326,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ simMode }) => {
 };
 
 // Refactored Sub-components for better organization
-const VettingList: React.FC<any> = ({ users, loading, isGridFail, approveUser, suspendUser }) => (
+const VettingList: React.FC<{ users: User[], loading: boolean, isGridFail: boolean, approveUser: { mutate: (id: string) => void, isPending: boolean }, suspendUser: { mutate: (id: string) => void, isPending: boolean } }> = ({ users, loading, isGridFail, approveUser, suspendUser }) => (
     <div className="mt-4">
         <div className="flex justify-between items-center mb-6">
             <p className="text-[10px] text-muted uppercase tracking-widest m-0">
@@ -333,7 +336,7 @@ const VettingList: React.FC<any> = ({ users, loading, isGridFail, approveUser, s
             </p>
         </div>
         <Table
-            dataSource={isGridFail ? users?.slice(0, 3).map((u: any) => ({ ...u, status: 'HIGH_RISK' })) : users}
+            dataSource={isGridFail ? (users as User[])?.slice(0, 3).map((u: User) => ({ ...u, status: 'HIGH_RISK' as User['status'] })) : users}
             loading={loading}
             rowKey="_id"
             pagination={{ pageSize: 5 }}
@@ -350,15 +353,15 @@ const VettingList: React.FC<any> = ({ users, loading, isGridFail, approveUser, s
                 {
                     title: 'STATUS',
                     dataIndex: 'status',
-                    render: (status) => {
-                        let color = status === 'approved' ? '#00ff88' : (status === 'suspended' || status === 'HIGH_RISK') ? '#ff3b6a' : '#ffaa00';
+                    render: (status: string) => {
+                        const color = status === 'approved' ? '#00ff88' : (status === 'suspended' || status === 'HIGH_RISK') ? '#ff3b6a' : '#ffaa00';
                         return <span style={{ color, border: `1px solid ${color}40`, background: `${color}10` }} className="px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest">{status}</span>;
                     }
                 },
                 {
                     title: 'DIRECTIVE',
                     key: 'action',
-                    render: (_, record: any) => (
+                    render: (_, record: User) => (
                         <div className="flex gap-2">
                             {isGridFail ? (
                                 <Button size="small" type="primary" className="bg-orange-500 hover:bg-orange-600 text-black border-none font-bold text-[10px] uppercase h-7">
@@ -386,7 +389,7 @@ const VettingList: React.FC<any> = ({ users, loading, isGridFail, approveUser, s
     </div>
 );
 
-const ConflictResolutionView: React.FC<{ conflicts: any[], refetch: () => void }> = ({ conflicts, refetch }) => {
+const ConflictResolutionView: React.FC<{ conflicts: Conflict[], refetch: () => void }> = ({ conflicts, refetch }) => {
     const queryClient = useQueryClient();
 
     const resolveConflict = useMutation({
@@ -471,7 +474,7 @@ const DevPortalView: React.FC = () => (
     </div>
 );
 
-const PolicyView: React.FC<{ gov: any, settings: any }> = ({ gov, settings }) => (
+const PolicyView: React.FC<{ gov: Governance, settings: Settings }> = ({ gov, settings }) => (
     <div className="space-y-6">
         <div className="p-4 rounded-xl bg-cyan-400/5 border border-cyan-400/10 mb-6 flex justify-between items-center">
             <div>

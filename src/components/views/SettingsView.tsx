@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, Row, Col, Switch, Select, Button, Slider, Input, message } from 'antd';
 import { Bell, Shield, Palette, Globe } from 'lucide-react';
-import { useSettings } from '../../contexts/SettingsContext';
+import { useSettings } from '../../contexts/useSettings';
 import { INDIA_STANDARD_LABEL } from '../../utils/indiaFormat';
 
 const SettingsView: React.FC = () => {

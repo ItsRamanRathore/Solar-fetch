@@ -4,8 +4,8 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { Zap, Activity, Battery, Award, Settings, HelpCircle, CheckCircle, XCircle, Users } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import GreenCertificate from '../GreenCertificate';
-import { useSettings } from '../../contexts/SettingsContext';
-import { useSocket } from '../../contexts/SocketContext';
+import { useSettings } from '../../contexts/useSettings';
+import { useSocket } from '../../contexts/useSocket';
 import { formatDateIST, formatTimeIST } from '../../utils/indiaFormat';
 
 interface ProsumerDashboardProps {
@@ -392,23 +392,21 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
     const currentCons = yieldData[yieldData.length - 1]?.consumption || 0;
     const isIslanding = simMode === 'grid-fail';
 
-    useEffect(() => {
-        if (currentUser?.storedEnergy !== undefined && localStoredEnergy === null) {
-            setLocalStoredEnergy(currentUser.storedEnergy);
-        } else if (localStoredEnergy === null) {
-            setLocalStoredEnergy(12);
-        }
-    }, [currentUser?.storedEnergy, localStoredEnergy]);
+    // localStoredEnergy is initialized to null and pulses are handled in the interval below.
+    // We derive the display value to avoid setState in an effect for initialization.
+    const displayEnergy = localStoredEnergy ?? currentUser?.storedEnergy ?? 12;
+
 
     const batteryCapacity = currentUser?.batteryCapacity && currentUser.batteryCapacity > 0 ? currentUser.batteryCapacity : 20;
 
     useEffect(() => {
-        if (localStoredEnergy === null) return;
+        // We allow it to start even if null, because currentVal handles the initial value.
+
         
         const tick = setInterval(() => {
             setLocalStoredEnergy(previous => {
-                if (previous === null) return null;
-                let next = previous;
+                const currentVal = previous ?? currentUser?.storedEnergy ?? 12;
+                let next = currentVal;
                 let stateLabel = 'Idle';
                 const surplus = currentGen - currentCons;
                 const reserveLimit = simMode === 'grid-fail' ? batteryCapacity * 0.05 : batteryCapacity * 0.20;
@@ -443,7 +441,7 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
         }, 1500);
 
         return () => clearInterval(tick);
-    }, [currentGen, currentCons, batteryCapacity, simMode, localStoredEnergy]);
+    }, [currentGen, currentCons, batteryCapacity, simMode, localStoredEnergy, currentUser?.storedEnergy]);
 
     const isAiLocked = gov?.isAiEnabled === false;
     const autoAcceptHighestEnabled = Boolean(currentUser?.autoAcceptHighestEnabled);
@@ -562,14 +560,14 @@ const ProsumerDashboard: React.FC<ProsumerDashboardProps> = ({ user, simMode }) 
                                 <div 
                                     className="absolute inset-0 rounded-full border-4 border-[#00ff88] transition-all duration-1000"
                                     style={{ 
-                                        clipPath: `inset(${100 - ((localStoredEnergy ?? 0) / batteryCapacity * 100)}% 0 0 0)`,
+                                        clipPath: `inset(${100 - (displayEnergy / batteryCapacity * 100)}% 0 0 0)`,
                                         filter: batteryState.includes('Charging') ? 'drop-shadow(0 0 15px #00ffe0)' : batteryState.includes('Discharging') ? 'drop-shadow(0 0 12px #ffaa00)' : 'drop-shadow(0 0 8px #00ff88)',
                                         borderColor: batteryState.includes('Charging') ? '#00ffe0' : batteryState.includes('Discharging') ? '#ffaa00' : '#00ff88'
                                     }}
                                 />
                                 <div className="text-center">
                                     <div className="text-2xl font-black text-white leading-none">
-                                        {(((localStoredEnergy ?? 0) / batteryCapacity) * 100).toFixed(0)}%
+                                        {((displayEnergy / batteryCapacity) * 100).toFixed(0)}%
                                     </div>
                                     <div className="text-[10px] text-muted uppercase font-bold">Stored</div>
                                 </div>

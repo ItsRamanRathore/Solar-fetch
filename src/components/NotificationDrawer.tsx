@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Drawer, Badge, List } from 'antd';
 import { Bell, Zap, TrendingUp, Link, Link2Off, UserCheck, UserX } from 'lucide-react';
-import { useSocket } from '../contexts/SocketContext';
+import { useSocket } from '../contexts/useSocket';
 import { motion } from 'framer-motion';
 
 const NotificationDrawer: React.FC = () => {

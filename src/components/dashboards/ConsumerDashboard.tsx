@@ -3,8 +3,8 @@ import { Card, Row, Col, Table, Form, InputNumber, Button, message, Progress, St
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Zap, Activity, ShieldAlert, CheckCircle, MapPin, Settings, HelpCircle, Cpu, Battery, Link2Off } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { useSocket } from '../../contexts/SocketContext';
-import { useSettings } from '../../contexts/SettingsContext';
+import { useSocket } from '../../contexts/useSocket';
+import { useSettings } from '../../contexts/useSettings';
 import { formatTimeIST } from '../../utils/indiaFormat';
 
 interface ConsumerDashboardProps {

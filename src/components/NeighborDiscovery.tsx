@@ -3,7 +3,7 @@ import { Card, List, Tag, Button, message } from 'antd';
 import { MapPin, User, ArrowRight, Star, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { useSocket } from '../contexts/SocketContext';
+import { useSocket } from '../contexts/useSocket';
 
 const NeighborDiscovery: React.FC = () => {
 
