@@ -13,6 +13,14 @@ Solar-fetch is a local energy marketplace and simulation platform focused on man
 - Database models for `User`, `Asset`, `GridState`, `Usage`, `Order`, `Transaction`, `Conflict`, and `Governance`.
 - Seed and utility scripts for creating admin users and seeding historical usage and simulation data.
 
+**Main highlights**
+- Full-stack, local energy marketplace: browser UI, REST API, and independent services working together for realistic simulations.
+- Real-time market mechanics: live bidding, socket-driven grid updates, and transaction streaming.
+- Pluggable simulation engines: run arbitrage, fraud detection, and grid simulation scenarios out-of-the-box.
+- Modular microservices: run services independently or together (`gateway`, `identity`, `metering`, `trading`, `settlement`).
+- Developer-friendly seeds and scripts: quick admin creation, reseed, and historical usage imports for reproducible testing.
+- Production-aware layout: services are container-friendly and configured via environment variables for easy deployment.
+
 Architecture overview
 - Monorepo-style layout with a single root tooling and multiple lightweight services in `services/`.
 - Frontend app in `src/` (React + TypeScript, Vite).
